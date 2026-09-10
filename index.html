@@ -1,0 +1,1301 @@
+<script type="application/json" id="cowork-artifact-meta">
+{
+  "name": "Fleet Capture Prototype",
+  "schemaVersion": 1,
+  "description": "Full fleet management app mirroring every tab of Fleet_Management_2026.xlsx: Daily Log (start/closing km capture with auto start-km + fuel), Vehicle Master (add/edit vehicle master data), Maintenance Log (service/repair/tyre-change records), Tyres & Inspection tracker, Driver Accountability log, an auto-computed Dashboard (alerts, charts, monthly & per-vehicle cost summaries), and a Guide tab."
+}
+</script>
+<!-- Fleet Capture v2 -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: #f4f5f7; color: #1c2126; font-size: 14px;
+  }
+  .app { max-width: 1180px; margin: 0 auto; padding: 16px; }
+  .header { display:flex; align-items:center; justify-content:space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
+  .header h1 { font-size: 18px; margin: 0; }
+  .header p { margin: 2px 0 0; color: #6b7280; font-size: 12px; }
+  .tabs { display:flex; gap:4px; background:#e5e7eb; padding:4px; border-radius:10px; flex-wrap:wrap; }
+  .tab-btn { border:none; background:transparent; padding:7px 12px; border-radius:8px; font-weight:600; font-size:12.5px; cursor:pointer; color:#4b5563; white-space:nowrap; }
+  .tab-btn.active { background:#111827; color:#fff; }
+  .card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:16px; margin-bottom:14px; }
+  .card h2 { font-size:14px; margin:0 0 12px; }
+  .card h3 { font-size:13px; margin:0 0 8px; color:#374151; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .grid3 { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .grid4 { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+  @media (max-width:700px){ .grid2, .grid3, .grid4 { grid-template-columns:1fr 1fr; } }
+  label { display:block; font-size:12px; font-weight:600; color:#374151; margin-bottom:4px; }
+  input, select, textarea {
+    width:100%; padding:9px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; background:#fff; color:#111827;
+  }
+  input:disabled, input[readonly] { background:#f9fafb; color:#6b7280; }
+  textarea { resize: vertical; min-height:50px; }
+  .field { margin-bottom:12px; }
+  .btn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius:8px; padding:10px 16px; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn-primary { background:#111827; color:#fff; }
+  .btn-primary:hover { background:#020617; }
+  .btn-ghost { background:#f3f4f6; color:#111827; }
+  .btn-sm { padding:5px 10px; font-size:12px; border-radius:6px; }
+  .btn-green { background:#ecfdf5; color:#047857; }
+  .btn-red { background:#fef2f2; color:#b91c1c; }
+  .btn-blue { background:#eff6ff; color:#1d4ed8; }
+  .stat { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:14px; }
+  .stat .label { font-size:11px; color:#6b7280; text-transform:uppercase; letter-spacing:.03em; }
+  .stat .value { font-size:22px; font-weight:700; margin-top:4px; }
+  .stat.alert { border-color:#fca5a5; background:#fff5f5; }
+  .stat.alert .value { color:#b91c1c; }
+  .alertbox { border:1px solid #fde68a; background:#fffbeb; border-radius:10px; padding:10px 12px; margin-bottom:8px; font-size:12.5px; display:flex; justify-content:space-between; gap:10px; }
+  .alertbox b { color:#92400e; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid #eef0f2; white-space:nowrap; }
+  th { color:#6b7280; font-weight:600; font-size:11px; text-transform:uppercase; }
+  tr:last-child td { border-bottom:none; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600; }
+  .badge.pending, .badge.reported { background:#fef3c7; color:#92400e; }
+  .badge.approved, .badge.completed { background:#dcfce7; color:#166534; }
+  .badge.flagged { background:#fee2e2; color:#991b1b; }
+  .badge.inprogress { background:#dbeafe; color:#1e40af; }
+  .row-actions { display:flex; gap:6px; }
+  .toast { position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#111827; color:#fff; padding:10px 18px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .25s; pointer-events:none; z-index:50; }
+  .toast.show { opacity:1; }
+  .muted { color:#6b7280; font-size:12px; }
+  .chart-wrap { position:relative; height:220px; }
+  .two-col { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:800px){ .two-col { grid-template-columns:1fr; } }
+  .table-scroll { overflow-x:auto; }
+  .expense-toggle { display:flex; gap:8px; margin-bottom:10px; }
+  .chip { border:1px solid #d1d5db; background:#fff; padding:6px 12px; border-radius:20px; font-size:12px; font-weight:600; cursor:pointer; color:#374151; }
+  .chip.active { background:#111827; color:#fff; border-color:#111827; }
+  .filter-bar { display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; align-items:center; }
+  .filter-bar select, .filter-bar input { width:auto; min-width:140px; }
+  .card-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; flex-wrap:wrap; gap:8px; }
+  .card-head h2 { margin:0; }
+  .form-actions { display:flex; gap:8px; margin-top:6px; }
+  .readonly-note { font-size:11px; color:#9ca3af; margin-top:-6px; margin-bottom:10px; }
+  .guide-item { margin-bottom:10px; }
+  .guide-item b { display:block; font-size:13px; margin-bottom:2px; }
+  .login-wrap { min-height:70vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .login-card { background:#fff; border:1px solid #e5e7eb; border-radius:14px; padding:28px; max-width:360px; width:100%; }
+  .login-card h1 { font-size:18px; margin:0 0 4px; }
+  .login-card p { margin:0 0 18px; color:#6b7280; font-size:12.5px; }
+  .login-hint { margin-top:14px; font-size:11.5px; color:#9ca3af; }
+  .login-error { margin-top:8px; color:#b91c1c; font-size:12.5px; min-height:16px; }
+  .userbadge { display:flex; align-items:center; gap:8px; font-size:12px; }
+</style>
+
+<div class="login-wrap" id="loginScreen">
+  <div class="login-card">
+    <h1>FleetCapture sign in</h1>
+    <p>Enter your username and password to continue.</p>
+    <div class="field"><label>Username</label><input type="text" id="login_username" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div class="field"><label>Password</label><input type="password" id="login_password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <button class="btn btn-primary" style="width:100%;justify-content:center" onclick="doLogin()">Log in</button>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-hint">Log in with your FleetCapture username and password.</div>
+  </div>
+</div>
+
+<div class="app" id="mainApp" style="display:none">
+  <div class="header">
+    <div>
+      <h1>FleetCapture</h1>
+      <p>Daily km &amp; fuel | vehicle master | maintenance | tyres | driver log | dashboard</p>
+    </div>
+    <div class="userbadge" id="userBadge"></div>
+    <div class="tabs" id="tabBar"></div>
+  </div>
+
+  <!-- DAILY LOG -->
+  <div id="view-daily">
+    <div class="card">
+      <h2>Who's logging?</h2>
+      <div class="grid2">
+        <div class="field">
+          <label>Driver</label>
+          <select id="d_driver" onchange="onDriverChange()"></select>
+        </div>
+        <div class="field">
+          <label>Vehicle</label>
+          <select id="d_vehicle" disabled onchange="onVehicleChange()"></select>
+        </div>
+      </div>
+      <div class="muted" id="d_vehicleInfo"></div>
+    </div>
+
+    <div class="card">
+      <h2>Today's km</h2>
+      <div class="grid3">
+        <div class="field">
+          <label>Date</label>
+          <input type="date" id="d_date">
+        </div>
+        <div class="field">
+          <label>Start km (auto  -  last closing km)</label>
+          <input type="text" id="d_startKm" readonly>
+        </div>
+        <div class="field">
+          <label>Closing km (today)</label>
+          <input type="number" id="d_closingKm" placeholder="e.g. 45260" oninput="updateKmPreview()">
+        </div>
+      </div>
+      <div class="field">
+        <label>Km travelled today</label>
+        <input type="text" id="d_kmPreview" disabled placeholder="auto-calculated">
+      </div>
+      <div class="field">
+        <label>Trip purpose</label>
+        <input type="text" id="d_purpose" placeholder="e.g. Client delivery, Admin run">
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Any spend today?</h2>
+      <div class="expense-toggle">
+        <div class="chip active" id="chip_none" onclick="setExpenseMode('none')">No expense</div>
+        <div class="chip" id="chip_fuel" onclick="setExpenseMode('fuel')">Fuel fill-up</div>
+        <div class="chip" id="chip_repair" onclick="setExpenseMode('repair')">Report a repair / issue</div>
+      </div>
+
+      <div id="fuelFields" style="display:none">
+        <div class="grid3">
+          <div class="field"><label>Litres</label><input type="number" id="d_litres" placeholder="e.g. 40"></div>
+          <div class="field"><label>Cost (USD)</label><input type="number" id="d_fuelCost" placeholder="e.g. 65.00"></div>
+          <div class="field"><label>Receipt photo</label><input type="file" accept="image/*" capture="environment" id="d_fuelPhoto"></div>
+        </div>
+      </div>
+
+      <div id="repairFields" style="display:none">
+        <div class="grid3">
+          <div class="field">
+            <label>Category</label>
+            <select id="d_repairCat">
+              <option>Tyres</option><option>Brakes</option><option>Electrical</option>
+              <option>Body Work</option><option>Accident Repair</option><option>Suspension</option><option>Other</option>
+            </select>
+          </div>
+          <div class="field"><label>Cost (USD, if known)</label><input type="number" id="d_repairCost" placeholder="e.g. 15.00"></div>
+          <div class="field"><label>Receipt photo</label><input type="file" accept="image/*" capture="environment" id="d_repairPhoto"></div>
+        </div>
+        <div class="field"><label>Description</label><input type="text" id="d_repairDesc" placeholder="e.g. Front left tyre puncture repair"></div>
+        <div class="readonly-note">This creates a record in the Maintenance Log for logistics to complete (workshop, invoice, status).</div>
+      </div>
+
+      <div class="field">
+        <label>Notes (optional)</label>
+        <textarea id="d_notes" placeholder="Anything else logistics should know?"></textarea>
+      </div>
+
+      <button class="btn btn-primary" onclick="submitEntry()">Submit today's log</button>
+    </div>
+
+    <div class="card">
+      <h2>My recent submissions</h2>
+      <div class="table-scroll">
+        <table id="d_history"><thead><tr><th>Date</th><th>Start km</th><th>Closing km</th><th>Km driven</th><th>Spend</th><th>Status</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- VEHICLE MASTER -->
+  <div id="view-master" style="display:none">
+    <div class="card">
+      <div class="card-head"><h2 id="m_formTitle">Add a vehicle</h2></div>
+      <div class="grid4">
+        <div class="field"><label>Reg Number *</label><input type="text" id="m_reg" placeholder="e.g. AFT 8937"></div>
+        <div class="field"><label>Fleet #</label><input type="text" id="m_fleetNo"></div>
+        <div class="field"><label>Make</label><input type="text" id="m_make" placeholder="e.g. Nissan"></div>
+        <div class="field"><label>Model</label><input type="text" id="m_model" placeholder="e.g. XTrail"></div>
+      </div>
+      <div class="grid4">
+        <div class="field"><label>Fuel Type</label>
+          <select id="m_fuelType"><option>Petrol</option><option>Diesel</option><option>Hybrid</option><option>Electric</option></select>
+        </div>
+        <div class="field"><label>Year</label><input type="text" id="m_year" placeholder="e.g. 2022"></div>
+        <div class="field"><label>Colour</label><input type="text" id="m_colour"></div>
+        <div class="field"><label>Status</label>
+          <select id="m_status"><option>Active</option><option>Workshop</option><option>Sold</option><option>Written Off</option></select>
+        </div>
+      </div>
+      <div class="grid3">
+        <div class="field"><label>Assigned Driver</label><select id="m_driver"></select></div>
+        <div class="field"><label>Home Station</label><input type="text" id="m_station"></div>
+        <div class="field"><label>Opening Odometer (km)</label><input type="number" id="m_openingOdo" placeholder="0"></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>Insurance Expiry</label><input type="date" id="m_insExp"></div>
+        <div class="field"><label>Licence Expiry</label><input type="date" id="m_licExp"></div>
+      </div>
+      <div class="field"><label>Notes</label><textarea id="m_notes"></textarea></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="saveVehicle()">Save vehicle</button>
+        <button class="btn btn-ghost" id="m_cancelBtn" style="display:none" onclick="cancelVehicleEdit()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>All vehicles</h2>
+        <input type="text" id="m_search" placeholder="Search reg, driver, station..." style="max-width:220px" oninput="renderVehicleTable()">
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Reg</th><th>Fleet #</th><th>Make/Model</th><th>Fuel</th><th>Driver</th><th>Station</th><th>Status</th><th>Current km</th><th>Insurance exp.</th><th>Licence exp.</th><th>Actions</th></tr></thead>
+          <tbody id="m_table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- DRIVERS MASTER -->
+  <div id="view-drivers" style="display:none">
+    <div class="card">
+      <h2 id="dr_formTitle">Add a driver</h2>
+      <div class="grid4">
+        <div class="field"><label>Full Name *</label><input type="text" id="dr_name"></div>
+        <div class="field"><label>Username *</label><input type="text" id="dr_username" placeholder="lowercase, no spaces"></div>
+        <div class="field"><label>Password *</label><input type="text" id="dr_password"></div>
+        <div class="field"><label>Contact</label><input type="text" id="dr_contact"></div>
+      </div>
+      <div class="grid3">
+        <div class="field"><label>Assigned Vehicle</label><select id="dr_vehicle"></select></div>
+        <div class="field"><label>Status</label><select id="dr_status"><option>Active</option><option>Inactive</option></select></div>
+      </div>
+      <div class="readonly-note">This creates the driver's login for the Daily Log. Assigning a vehicle here also updates that vehicle's record in Vehicle Master.</div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="saveDriverAccount()">Save driver</button>
+        <button class="btn btn-ghost" id="dr_cancelBtn" style="display:none" onclick="cancelDriverEdit()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>All drivers</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Name</th><th>Username</th><th>Contact</th><th>Assigned Vehicle</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="dr_table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAINTENANCE LOG -->
+  <div id="view-maint" style="display:none">
+    <div class="card">
+      <h2 id="mt_formTitle">Log maintenance / repair</h2>
+      <div class="grid4">
+        <div class="field"><label>Date *</label><input type="date" id="mt_date"></div>
+        <div class="field"><label>Vehicle *</label><select id="mt_reg" onchange="onMaintVehicleChange()"></select></div>
+        <div class="field"><label>Driver / Custodian</label><input type="text" id="mt_driver"></div>
+        <div class="field"><label>Category</label>
+          <select id="mt_category">
+            <option>Service</option><option>Suspension</option><option>Tyres</option><option>Brakes</option>
+            <option>Electrical</option><option>Body Work</option><option>Upgrade</option><option>Accident Repair</option>
+            <option>Inspection</option><option>Other</option>
+          </select>
+        </div>
+      </div>
+      <div class="field"><label>Description of Work</label><input type="text" id="mt_desc"></div>
+      <div class="grid4">
+        <div class="field"><label>Workshop / Supplier</label><input type="text" id="mt_workshop"></div>
+        <div class="field"><label>Cost (USD)</label><input type="number" id="mt_cost"></div>
+        <div class="field"><label>Invoice / Ref #</label><input type="text" id="mt_invoice"></div>
+        <div class="field"><label>Authorised By</label><input type="text" id="mt_authBy"></div>
+      </div>
+      <div class="grid3">
+        <div class="field"><label>Odometer at Service (km)</label><input type="number" id="mt_odo"></div>
+        <div class="field"><label>Next Service Due (km)</label><input type="number" id="mt_nextDue"></div>
+        <div class="field"><label>Status</label>
+          <select id="mt_status"><option>Reported</option><option>Pending</option><option>In Progress</option><option>Completed</option></select>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="saveMaintenance()">Save record</button>
+        <button class="btn btn-ghost" id="mt_cancelBtn" style="display:none" onclick="cancelMaintEdit()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>All maintenance records</h2></div>
+      <div class="filter-bar">
+        <select id="mt_filterStatus" onchange="renderMaintTable()">
+          <option value="all">All statuses</option>
+          <option>Reported</option><option>Pending</option><option>In Progress</option><option>Completed</option>
+        </select>
+        <select id="mt_filterCat" onchange="renderMaintTable()">
+          <option value="all">All categories</option>
+          <option>Service</option><option>Suspension</option><option>Tyres</option><option>Brakes</option>
+          <option>Electrical</option><option>Body Work</option><option>Upgrade</option><option>Accident Repair</option>
+          <option>Inspection</option><option>Other</option>
+        </select>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Date</th><th>Reg</th><th>Category</th><th>Description</th><th>Workshop</th><th>Cost</th><th>Odo at Service</th><th>Next Due</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="mt_table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- TYRES & INSPECTION -->
+  <div id="view-tyres" style="display:none">
+    <div class="card" id="ty_formCard" style="display:none">
+      <h2>Edit tyre &amp; inspection record  -  <span id="ty_formReg"></span></h2>
+      <div class="grid4">
+        <div class="field"><label>Front Left (size/brand)</label><input type="text" id="ty_fl"></div>
+        <div class="field"><label>Front Right (size/brand)</label><input type="text" id="ty_fr"></div>
+        <div class="field"><label>Rear Left (size/brand)</label><input type="text" id="ty_rl"></div>
+        <div class="field"><label>Rear Right (size/brand)</label><input type="text" id="ty_rr"></div>
+      </div>
+      <div class="grid3">
+        <div class="field"><label>Spare Tyre</label><input type="text" id="ty_spare"></div>
+        <div class="field"><label>Last Tyre Replace Date</label><input type="date" id="ty_lastReplace"></div>
+        <div class="field"><label>Next Replace Due</label><input type="date" id="ty_nextReplace"></div>
+      </div>
+      <div class="grid3">
+        <div class="field"><label>Last Inspection Date</label><input type="date" id="ty_lastInsp"></div>
+        <div class="field"><label>Next Inspection Due</label><input type="date" id="ty_nextInsp"></div>
+        <div class="field"><label>Roadworthy (Y/N)</label><select id="ty_roadworthy"><option>Y</option><option>N</option></select></div>
+      </div>
+      <div class="field"><label>Notes</label><textarea id="ty_notes"></textarea></div>
+      <div class="readonly-note">Insurance &amp; licence expiry are managed once in Vehicle Master and shown there  -  no need to duplicate here.</div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="saveTyre()">Save</button>
+        <button class="btn btn-ghost" onclick="closeTyreForm()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Tyre &amp; periodic inspection tracker</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Reg</th><th>Make/Model</th><th>FL</th><th>FR</th><th>RL</th><th>RR</th><th>Spare</th><th>Next Tyre Replace</th><th>Next Inspection</th><th>Roadworthy</th><th>Actions</th></tr></thead>
+          <tbody id="ty_table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- DRIVER ACCOUNTABILITY -->
+  <div id="view-incidents" style="display:none">
+    <div class="card">
+      <h2 id="in_formTitle">Log an incident</h2>
+      <div class="grid4">
+        <div class="field"><label>Date *</label><input type="date" id="in_date"></div>
+        <div class="field"><label>Driver Name</label><input type="text" id="in_driver"></div>
+        <div class="field"><label>Reg Number</label><select id="in_reg"></select></div>
+        <div class="field"><label>Incident Type</label><input type="text" id="in_type" placeholder="e.g. Fine, Damage, Late return"></div>
+      </div>
+      <div class="field"><label>Description</label><textarea id="in_desc"></textarea></div>
+      <div class="grid4">
+        <div class="field"><label>Km at Incident</label><input type="number" id="in_km"></div>
+        <div class="field"><label>Cost / Fine (USD)</label><input type="number" id="in_cost"></div>
+        <div class="field"><label>Fault</label><select id="in_fault"><option>Driver</option><option>Other</option><option>Shared</option></select></div>
+        <div class="field"><label>Resolved (Y/N)</label><select id="in_resolved"><option>N</option><option>Y</option></select></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label>Action Taken</label><input type="text" id="in_action"></div>
+        <div class="field"><label>Authorised By</label><input type="text" id="in_authBy"></div>
+      </div>
+      <div class="field"><label>Notes</label><textarea id="in_notes"></textarea></div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="saveIncident()">Save incident</button>
+        <button class="btn btn-ghost" id="in_cancelBtn" style="display:none" onclick="cancelIncidentEdit()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>All incidents</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Date</th><th>Driver</th><th>Reg</th><th>Type</th><th>Km</th><th>Cost</th><th>Fault</th><th>Resolved</th><th>Actions</th></tr></thead>
+          <tbody id="in_table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="view-dashboard" style="display:none">
+    <div class="grid4" id="dashStats"></div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>Alerts</h2>
+      <div id="dashAlerts"></div>
+    </div>
+
+    <div class="two-col">
+      <div class="card">
+        <h3>Spend by category</h3>
+        <div class="chart-wrap"><canvas id="catChart"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Spend by vehicle</h3>
+        <div class="chart-wrap"><canvas id="vehChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Pending approvals  -  daily log</h2>
+        <div style="display:flex; gap:8px;">
+          <select id="a_filter" onchange="renderApprovalsTable()" style="width:auto">
+            <option value="all">All entries</option>
+            <option value="pending">Pending only</option>
+            <option value="fuel">Fuel only</option>
+            <option value="repair">Repair reports only</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="exportCSV()">Export CSV</button>
+        </div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Start km</th><th>Closing km</th><th>Km</th><th>Type</th><th>Cost</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="a_table"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Monthly cost summary (auto)</h2>
+      <div class="table-scroll">
+        <table id="monthlyTable"></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Vehicle expense summary  -  by vehicle by month (auto)</h2>
+      <div class="table-scroll">
+        <table id="vehExpTable"></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- GUIDE -->
+  <div id="view-guide" style="display:none">
+    <div class="card">
+      <h2>What each tab is for</h2>
+      <div class="guide-item"><b>Daily Log</b>Drivers log km at the end of each day. Start km fills in automatically from the last closing km recorded for that vehicle  -  just enter today's closing odometer reading. Fuel fill-ups and repair reports can be added from the same screen.</div>
+      <div class="guide-item"><b>Vehicle Master</b>Add and edit the fleet's master data  -  one place to keep reg number, make/model, fuel type, assigned driver, station, status, opening odometer, and insurance/licence expiry dates current.</div>
+      <div class="guide-item"><b>Maintenance</b>Every service, repair, tyre change, or upgrade gets logged here with workshop, cost, invoice reference and status, whether entered directly or reported by a driver from the Daily Log.</div>
+      <div class="guide-item"><b>Tyres &amp; Inspection</b>One row per vehicle tracking tyre size/brand per position, replacement dates, inspection dates and roadworthy status.</div>
+      <div class="guide-item"><b>Driver Accountability</b>Record incidents, fines, damage or commendations against a driver and vehicle, with fault and resolution status.</div>
+      <div class="guide-item"><b>Dashboard</b>Live totals, expiry/service alerts, spend charts, the approval queue for daily log entries, and auto-calculated monthly and per-vehicle cost summaries  -  no manual totalling required.</div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------- Supabase ----------
+const SUPABASE_URL = 'https://gylytcxbabcoqzjabpte.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd5bHl0Y3hiYWJjb3F6amFicHRlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwNTg1NDAsImV4cCI6MjEwNDYzNDU0MH0.QOzLzAB88zIgam5bZwoY-FjjbMAXcWw-Kc0Wm5hMAIM';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const FUNCTIONS_URL = SUPABASE_URL + '/functions/v1/admin-users';
+
+const TODAY = new Date();
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function fmtDate(d){ return d.toISOString().slice(0,10); }
+function daysUntil(dateStr){ if(!dateStr) return null; return Math.round((new Date(dateStr) - TODAY)/86400000); }
+function monthIdx(dateStr){ if(!dateStr) return null; return new Date(dateStr).getMonth(); }
+function money(n){ return '$'+(Number(n)||0).toFixed(2); }
+
+let vehicles = [];
+let dailyLogs = [];
+let maintenance = [];
+let tyres = {};
+let incidents = [];
+let fmUsers = []; // drivers only (role='driver'), sourced from the profiles table
+let currentUser = null;
+let expenseMode = 'none';
+let editingVehicleReg = null;
+let editingMaintId = null;
+let editingIncidentId = null;
+let editingTyreReg = null;
+let editingDriverId = null;
+
+function getVehicle(reg){ return vehicles.find(v=>v.reg===reg); }
+function getCurrentOdometer(reg){
+  let vals = [];
+  const v = getVehicle(reg);
+  if (v && v.openingOdometer) vals.push(Number(v.openingOdometer)||0);
+  dailyLogs.filter(e=>e.reg===reg).forEach(e=>{ if(e.closingKm) vals.push(Number(e.closingKm)); });
+  maintenance.filter(e=>e.reg===reg).forEach(e=>{ if(e.odometerAtService) vals.push(Number(e.odometerAtService)); });
+  return vals.length ? Math.max(...vals) : 0;
+}
+function getNextServiceDue(reg){
+  const rows = maintenance.filter(e=>e.reg===reg && e.nextServiceDueKm).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  return rows.length ? Number(rows[0].nextServiceDueKm) : null;
+}
+function ensureTyreRow(reg){
+  if (!tyres[reg]) tyres[reg] = {fl:'',fr:'',rl:'',rr:'',spare:'',lastReplace:'',nextReplace:'',lastInsp:'',nextInsp:'',roadworthy:'',notes:''};
+}
+function driverNames(){ return fmUsers.filter(u=>u.status==='Active').map(u=>u.name); }
+function vehiclesForDriver(name){ return vehicles.filter(v=>v.driver===name); }
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+// ---------- Auth ----------
+async function doLogin(){
+  const uname = (document.getElementById('login_username').value||'').trim().toLowerCase();
+  const pass = document.getElementById('login_password').value||'';
+  document.getElementById('loginError').textContent = '';
+  if (!uname || !pass) { document.getElementById('loginError').textContent = 'Enter a username and password.'; return; }
+  const { error } = await sb.auth.signInWithPassword({ email: uname + '@fleetcapture.local', password: pass });
+  if (error) {
+    console.error('Login error:', error);
+    document.getElementById('loginError').textContent = 'Login failed: ' + error.message + ' (status ' + (error.status||'?') + ')';
+    return;
+  }
+  await afterAuth();
+}
+async function logout(){
+  await sb.auth.signOut();
+  location.reload();
+}
+async function afterAuth(){
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) return;
+  const { data: profile, error } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
+  if (error || !profile) {
+    document.getElementById('loginError').textContent = 'Could not load your profile. Contact your admin.';
+    await sb.auth.signOut();
+    return;
+  }
+  currentUser = { id: profile.id, name: profile.name, username: profile.username, role: profile.role, status: profile.status };
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('mainApp').style.display = 'block';
+  document.getElementById('userBadge').innerHTML =
+    `<span class="muted">Signed in as <b>${currentUser.name}</b> (${currentUser.role})</span><button class="btn btn-ghost btn-sm" onclick="logout()">Log out</button>`;
+  buildTabBar();
+  await loadAllData();
+  initAppData();
+  showTab('daily');
+}
+function currentTabAllowed(key){
+  const t = TABS.find(t=>t[0]===key);
+  return t && (t[2]==='all' || (currentUser && currentUser.role==='admin'));
+}
+
+// ---------- Loading data from Supabase ----------
+async function loadAllData(){
+  await Promise.all([refreshVehicles(), refreshDrivers(), refreshDailyLogs(), refreshMaintenance(), refreshTyres(), refreshIncidents()]);
+}
+async function refreshVehicles(){
+  const { data, error } = await sb.from('vehicles').select('*').order('reg');
+  if (error) { console.error(error); toast('Could not load vehicles: ' + error.message); return; }
+  vehicles = (data||[]).map(v=>({
+    reg:v.reg, fleetNo:v.fleet_no||'', make:v.make||'', model:v.model||'', fuelType:v.fuel_type||'Petrol',
+    year:v.year||'', colour:v.colour||'', driver:v.driver||'', station:v.station||'', status:v.status||'Active',
+    openingOdometer:Number(v.opening_odometer)||0, insuranceExpiry:v.insurance_expiry||'', licenceExpiry:v.licence_expiry||'', notes:v.notes||''
+  }));
+}
+async function refreshDrivers(){
+  const { data, error } = await sb.from('profiles').select('*').eq('role','driver').order('name');
+  if (error) { console.error(error); return; }
+  fmUsers = (data||[]).map(u=>({ id:u.id, name:u.name, username:u.username, contact:u.contact||'', assignedVehicleReg:u.assigned_vehicle_reg||null, status:u.status||'Active' }));
+}
+async function refreshDailyLogs(){
+  const { data, error } = await sb.from('daily_logs').select('*').order('id', { ascending:false });
+  if (error) { console.error(error); return; }
+  dailyLogs = (data||[]).map(e=>({
+    id:e.id, date:e.log_date, reg:e.reg, driver:e.driver_name, driverId:e.driver_id,
+    startKm:Number(e.start_km), closingKm:Number(e.closing_km), km:Number(e.km), mode:e.mode,
+    cost:Number(e.cost)||0, category:e.category||'-', litres:e.litres, purpose:e.purpose||'',
+    notes:e.notes||'', status:e.status||'pending'
+  }));
+}
+async function refreshMaintenance(){
+  const { data, error } = await sb.from('maintenance').select('*').order('log_date', { ascending:false });
+  if (error) { console.error(error); return; }
+  maintenance = (data||[]).map(m=>({
+    id:m.id, date:m.log_date, reg:m.reg, driver:m.driver_name, reportedBy:m.reported_by, category:m.category,
+    description:m.description||'', workshop:m.workshop||'', invoiceRef:m.invoice_ref||'', cost:Number(m.cost)||0,
+    odometerAtService:m.odometer_at_service, nextServiceDueKm:m.next_service_due_km,
+    authorisedBy:m.authorised_by||'', status:m.status||'Reported'
+  }));
+}
+async function refreshTyres(){
+  const { data, error } = await sb.from('tyres').select('*');
+  if (error) { console.error(error); return; }
+  tyres = {};
+  (data||[]).forEach(t=>{
+    tyres[t.reg] = { fl:t.fl||'', fr:t.fr||'', rl:t.rl||'', rr:t.rr||'', spare:t.spare||'',
+      lastReplace:t.last_replace||'', nextReplace:t.next_replace||'', lastInsp:t.last_insp||'', nextInsp:t.next_insp||'',
+      roadworthy:t.roadworthy||'', notes:t.notes||'' };
+  });
+}
+async function refreshIncidents(){
+  const { data, error } = await sb.from('incidents').select('*').order('incident_date', { ascending:false });
+  if (error) { console.error(error); return; }
+  incidents = (data||[]).map(i=>({
+    id:i.id, date:i.incident_date, driverName:i.driver_name, reg:i.reg, incidentType:i.incident_type,
+    description:i.description||'', km:i.km, cost:Number(i.cost)||0, fault:i.fault, actionTaken:i.action_taken||'',
+    resolved:i.resolved||'N', authorisedBy:i.authorised_by||'', notes:i.notes||''
+  }));
+}
+
+// ---------- Tabs ----------
+const TABS = [
+  ['daily','Daily Log','all'], ['master','Vehicle Master','admin'], ['drivers','Drivers','admin'], ['maint','Maintenance','admin'],
+  ['tyres','Tyres & Inspection','admin'], ['incidents','Driver Accountability','admin'], ['dashboard','Dashboard','admin'], ['guide','Guide','all']
+];
+function buildTabBar(){
+  const allowed = TABS.filter(t=> t[2]==='all' || (currentUser && currentUser.role==='admin'));
+  document.getElementById('tabBar').innerHTML = allowed.map(t=>
+    `<button class="tab-btn" id="tab_${t[0]}" onclick="showTab('${t[0]}')">${t[1]}</button>`).join('');
+}
+function showTab(key){
+  if (!currentTabAllowed(key)) key = 'daily';
+  TABS.forEach(t=>{
+    const view = document.getElementById('view-'+t[0]); if (!view) return;
+    view.style.display = (t[0]===key)?'block':'none';
+    const btn = document.getElementById('tab_'+t[0]); if (btn) btn.classList.toggle('active', t[0]===key);
+  });
+  if (key==='master') renderVehicleTable();
+  if (key==='drivers') renderDriverTable();
+  if (key==='maint') renderMaintTable();
+  if (key==='tyres') renderTyreTable();
+  if (key==='incidents') renderIncidentTable();
+  if (key==='dashboard') renderDashboard();
+}
+
+// ---------- Daily Log ----------
+function populateDriverDropdowns(){
+  const dSel = document.getElementById('d_driver');
+  if (currentUser && currentUser.role==='driver') {
+    dSel.innerHTML = `<option value="${currentUser.name}">${currentUser.name}</option>`;
+    dSel.disabled = true;
+  } else {
+    dSel.innerHTML = driverNames().map(n=>`<option value="${n}">${n}</option>`).join('');
+    dSel.disabled = false;
+  }
+  onDriverChange();
+  document.getElementById('d_date').value = fmtDate(TODAY);
+}
+function onDriverChange(){
+  const driver = document.getElementById('d_driver').value;
+  const opts = vehiclesForDriver(driver);
+  const vSel = document.getElementById('d_vehicle');
+  vSel.innerHTML = opts.map(v=>`<option value="${v.reg}">${v.reg} - ${v.make} ${v.model}</option>`).join('');
+  vSel.disabled = opts.length <= 1;
+  onVehicleChange();
+}
+function onVehicleChange(){
+  const reg = document.getElementById('d_vehicle').value;
+  const v = getVehicle(reg);
+  const start = v ? getCurrentOdometer(v.reg) : 0;
+  document.getElementById('d_startKm').value = v ? start.toLocaleString() : '';
+  document.getElementById('d_vehicleInfo').textContent = v ? `Station: ${v.station} | Status: ${v.status}` : '';
+  updateKmPreview();
+}
+function updateKmPreview(){
+  const reg = document.getElementById('d_vehicle').value;
+  const v = getVehicle(reg);
+  const start = v ? getCurrentOdometer(v.reg) : 0;
+  const closing = parseFloat(document.getElementById('d_closingKm').value);
+  const out = document.getElementById('d_kmPreview');
+  if (v && !isNaN(closing)) {
+    const km = closing - start;
+    out.value = km >= 0 ? km + ' km' : 'check reading (< start km of ' + start.toLocaleString() + ')';
+  } else out.value = '';
+}
+function setExpenseMode(mode){
+  expenseMode = mode;
+  ['none','fuel','repair'].forEach(m=>document.getElementById('chip_'+m).classList.toggle('active', m===mode));
+  document.getElementById('fuelFields').style.display = mode==='fuel' ? 'block':'none';
+  document.getElementById('repairFields').style.display = mode==='repair' ? 'block':'none';
+}
+async function submitEntry(){
+  const reg = document.getElementById('d_vehicle').value;
+  const v = getVehicle(reg);
+  if (!v) { toast('Select a driver / vehicle'); return; }
+  const start = getCurrentOdometer(v.reg);
+  const closing = parseFloat(document.getElementById('d_closingKm').value);
+  if (isNaN(closing)) { toast('Enter a valid closing km reading'); return; }
+  const km = closing - start;
+  if (km < 0) { toast('Closing km is lower than start km - check and re-enter'); return; }
+
+  let mode = 'trip', cost = 0, category = '-';
+  const purpose = document.getElementById('d_purpose').value || 'Trip';
+  if (expenseMode === 'fuel') {
+    mode = 'fuel'; category = 'Fuel';
+    cost = parseFloat(document.getElementById('d_fuelCost').value) || 0;
+  } else if (expenseMode === 'repair') {
+    mode = 'repair';
+    category = document.getElementById('d_repairCat').value;
+    cost = parseFloat(document.getElementById('d_repairCost').value) || 0;
+  }
+
+  const driverName = document.getElementById('d_driver').value;
+  const driverRecord = fmUsers.find(u=>u.name===driverName);
+  const driverId = currentUser.role==='driver' ? currentUser.id : (driverRecord ? driverRecord.id : null);
+  const logDate = document.getElementById('d_date').value || fmtDate(TODAY);
+
+  const { error } = await sb.from('daily_logs').insert({
+    driver_id: driverId, driver_name: driverName, reg: v.reg, log_date: logDate,
+    start_km: start, closing_km: closing, km, mode, category, cost,
+    litres: expenseMode==='fuel' ? (parseFloat(document.getElementById('d_litres').value)||null) : null,
+    purpose, notes: document.getElementById('d_notes').value, status: 'pending'
+  });
+  if (error) { toast('Error saving log: ' + error.message); return; }
+
+  if (mode === 'repair') {
+    const { error: merr } = await sb.from('maintenance').insert({
+      reg: v.reg, driver_name: driverName, reported_by: currentUser.id, log_date: logDate, category,
+      description: document.getElementById('d_repairDesc').value || category,
+      workshop: '', invoice_ref: '', cost, odometer_at_service: closing, next_service_due_km: null,
+      authorised_by: '', status: 'Reported'
+    });
+    if (merr) toast('Log saved, but the repair report failed: ' + merr.message);
+  }
+
+  document.getElementById('d_closingKm').value=''; document.getElementById('d_purpose').value='';
+  document.getElementById('d_notes').value=''; document.getElementById('d_litres').value='';
+  document.getElementById('d_fuelCost').value=''; document.getElementById('d_repairCost').value='';
+  document.getElementById('d_repairDesc').value='';
+
+  await refreshDailyLogs(); await refreshMaintenance();
+  onVehicleChange(); setExpenseMode('none');
+  toast(mode==='repair' ? 'Log submitted - repair reported to Maintenance' : 'Log submitted - thanks!');
+  renderDriverHistory();
+}
+function renderDriverHistory(){
+  const driver = document.getElementById('d_driver').value;
+  const rows = dailyLogs.filter(e=>e.driver===driver).sort((a,b)=>b.id-a.id).slice(0,8);
+  document.getElementById('d_history').querySelector('tbody').innerHTML = rows.map(e=>`
+    <tr><td>${e.date}</td><td>${e.startKm.toLocaleString()}</td><td>${e.closingKm.toLocaleString()}</td><td>${e.km} km</td>
+    <td>${e.cost ? money(e.cost)+' ('+e.category+')' : ' - '}</td>
+    <td><span class="badge ${e.status}">${e.status}</span></td></tr>`).join('') || '<tr><td colspan=6 class="muted">No entries yet</td></tr>';
+}
+
+// ---------- Vehicle Master ----------
+function populateVehicleDriverSelect(){
+  const sel = document.getElementById('m_driver');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Unassigned</option>' + driverNames().map(n=>`<option value="${n}">${n}</option>`).join('');
+  if ([...sel.options].some(o=>o.value===cur)) sel.value = cur;
+}
+function clearVehicleForm(){
+  ['m_reg','m_fleetNo','m_make','m_model','m_year','m_colour','m_station','m_openingOdo','m_insExp','m_licExp','m_notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('m_fuelType').value='Petrol'; document.getElementById('m_status').value='Active';
+  document.getElementById('m_reg').readOnly = false;
+  populateVehicleDriverSelect(); document.getElementById('m_driver').value='';
+}
+async function saveVehicle(){
+  const reg = document.getElementById('m_reg').value.trim();
+  if (!reg) { toast('Reg Number is required'); return; }
+  const payload = {
+    fleet_no: document.getElementById('m_fleetNo').value, make: document.getElementById('m_make').value,
+    model: document.getElementById('m_model').value, fuel_type: document.getElementById('m_fuelType').value,
+    year: document.getElementById('m_year').value, colour: document.getElementById('m_colour').value,
+    driver: document.getElementById('m_driver').value, station: document.getElementById('m_station').value,
+    status: document.getElementById('m_status').value, opening_odometer: parseFloat(document.getElementById('m_openingOdo').value)||0,
+    insurance_expiry: document.getElementById('m_insExp').value || null, licence_expiry: document.getElementById('m_licExp').value || null,
+    notes: document.getElementById('m_notes').value
+  };
+  let error;
+  if (editingVehicleReg) {
+    ({ error } = await sb.from('vehicles').update(payload).eq('reg', editingVehicleReg));
+  } else {
+    const { data: existing } = await sb.from('vehicles').select('reg').eq('reg', reg).maybeSingle();
+    if (existing) { toast('A vehicle with that reg already exists'); return; }
+    ({ error } = await sb.from('vehicles').insert(Object.assign({ reg }, payload)));
+  }
+  if (error) { toast('Error: ' + error.message); return; }
+  cancelVehicleEdit();
+  await refreshVehicles();
+  renderVehicleTable(); populateDriverDropdowns(); renderDriverHistory();
+  toast('Vehicle saved');
+}
+function editVehicle(reg){
+  const v = getVehicle(reg); if (!v) return;
+  editingVehicleReg = reg;
+  document.getElementById('m_formTitle').textContent = 'Edit vehicle - ' + reg;
+  document.getElementById('m_reg').value = v.reg;
+  document.getElementById('m_reg').readOnly = true;
+  document.getElementById('m_fleetNo').value = v.fleetNo||'';
+  document.getElementById('m_make').value = v.make||'';
+  document.getElementById('m_model').value = v.model||'';
+  document.getElementById('m_fuelType').value = v.fuelType||'Petrol';
+  document.getElementById('m_year').value = v.year||'';
+  document.getElementById('m_colour').value = v.colour||'';
+  document.getElementById('m_status').value = v.status||'Active';
+  populateVehicleDriverSelect();
+  document.getElementById('m_driver').value = v.driver||'';
+  document.getElementById('m_station').value = v.station||'';
+  document.getElementById('m_openingOdo').value = v.openingOdometer||0;
+  document.getElementById('m_insExp').value = v.insuranceExpiry||'';
+  document.getElementById('m_licExp').value = v.licenceExpiry||'';
+  document.getElementById('m_notes').value = v.notes||'';
+  document.getElementById('m_cancelBtn').style.display='inline-flex';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function cancelVehicleEdit(){
+  editingVehicleReg = null;
+  document.getElementById('m_formTitle').textContent = 'Add a vehicle';
+  document.getElementById('m_cancelBtn').style.display='none';
+  clearVehicleForm();
+}
+async function deleteVehicle(reg){
+  if (!confirm('Delete vehicle ' + reg + '? This does not delete its logged history.')) return;
+  const { error } = await sb.from('vehicles').delete().eq('reg', reg);
+  if (error) { toast('Error: ' + error.message); return; }
+  await refreshVehicles();
+  renderVehicleTable(); populateDriverDropdowns(); renderDriverHistory();
+}
+function renderVehicleTable(){
+  const q = (document.getElementById('m_search').value||'').toLowerCase();
+  let rows = vehicles.filter(v => !q || [v.reg,v.driver,v.station,v.make,v.model].join(' ').toLowerCase().includes(q));
+  document.getElementById('m_table').innerHTML = rows.map(v=>`
+    <tr><td>${v.reg}</td><td>${v.fleetNo||' - '}</td><td>${v.make} ${v.model}</td><td>${v.fuelType}</td>
+    <td>${v.driver}</td><td>${v.station}</td><td>${v.status}</td><td>${getCurrentOdometer(v.reg).toLocaleString()} km</td>
+    <td>${v.insuranceExpiry||' - '}</td><td>${v.licenceExpiry||' - '}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-blue" onclick="editVehicle('${v.reg}')">Edit</button><button class="btn btn-sm btn-red" onclick="deleteVehicle('${v.reg}')">Delete</button></td></tr>`).join('')
+    || '<tr><td colspan=11 class="muted">No vehicles match</td></tr>';
+}
+
+// ---------- Drivers Master (via Edge Function) ----------
+async function callAdminUsersFn(payload){
+  const { data: { session } } = await sb.auth.getSession();
+  const res = await fetch(FUNCTIONS_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + session.access_token },
+    body: JSON.stringify(payload)
+  });
+  const json = await res.json().catch(()=>({}));
+  if (!res.ok || json.error) throw new Error(json.error || ('Request failed (' + res.status + ')'));
+  return json;
+}
+function populateVehicleOptionsForAssign(selectedReg){
+  const sel = document.getElementById('dr_vehicle');
+  sel.innerHTML = '<option value="">Unassigned</option>' + vehicles.map(v=>`<option value="${v.reg}">${v.reg} - ${v.make} ${v.model}</option>`).join('');
+  sel.value = selectedReg || '';
+}
+function clearDriverForm(){
+  ['dr_name','dr_username','dr_password','dr_contact'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('dr_status').value='Active';
+  document.getElementById('dr_username').disabled = false;
+  document.getElementById('dr_password').placeholder = 'Choose a password';
+  populateVehicleOptionsForAssign('');
+}
+async function saveDriverAccount(){
+  const name = document.getElementById('dr_name').value.trim();
+  const username = document.getElementById('dr_username').value.trim().toLowerCase();
+  const password = document.getElementById('dr_password').value;
+  const contact = document.getElementById('dr_contact').value;
+  const assignedVehicleReg = document.getElementById('dr_vehicle').value || null;
+  const status = document.getElementById('dr_status').value;
+  if (!name) { toast('Name is required'); return; }
+  if (!editingDriverId && (!username || !password)) { toast('Username and password are required'); return; }
+  try {
+    if (editingDriverId) {
+      await callAdminUsersFn({ action:'update', id: editingDriverId, name, password: password || undefined, contact, assignedVehicleReg, status });
+    } else {
+      await callAdminUsersFn({ action:'create', name, username, password, contact, assignedVehicleReg, status });
+    }
+  } catch (e) { toast('Error: ' + e.message); return; }
+  cancelDriverEdit();
+  await refreshDrivers(); await refreshVehicles();
+  renderDriverTable(); renderVehicleTable(); populateVehicleDriverSelect(); populateDriverDropdowns(); renderDriverHistory();
+  toast('Driver saved');
+}
+function editDriverAccount(id){
+  const u = fmUsers.find(x=>x.id===id); if (!u) return;
+  editingDriverId = id;
+  document.getElementById('dr_formTitle').textContent = 'Edit driver - ' + u.name;
+  document.getElementById('dr_name').value = u.name;
+  document.getElementById('dr_username').value = u.username;
+  document.getElementById('dr_username').disabled = true;
+  document.getElementById('dr_password').value = '';
+  document.getElementById('dr_password').placeholder = 'Leave blank to keep current password';
+  document.getElementById('dr_contact').value = u.contact||'';
+  populateVehicleOptionsForAssign(u.assignedVehicleReg);
+  document.getElementById('dr_status').value = u.status||'Active';
+  document.getElementById('dr_cancelBtn').style.display='inline-flex';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function cancelDriverEdit(){
+  editingDriverId = null;
+  document.getElementById('dr_formTitle').textContent = 'Add a driver';
+  document.getElementById('dr_cancelBtn').style.display='none';
+  clearDriverForm();
+}
+async function deleteDriverAccount(id){
+  if (!confirm('Delete this driver account? This does not delete their logged history.')) return;
+  try { await callAdminUsersFn({ action:'delete', id }); }
+  catch(e){ toast('Error: ' + e.message); return; }
+  await refreshDrivers();
+  renderDriverTable(); populateVehicleDriverSelect(); populateDriverDropdowns(); renderDriverHistory();
+}
+function renderDriverTable(){
+  const rows = fmUsers.slice().sort((a,b)=>a.name.localeCompare(b.name));
+  document.getElementById('dr_table').innerHTML = rows.map(u=>`
+    <tr><td>${u.name}</td><td>${u.username}</td><td>${u.contact||'-'}</td><td>${u.assignedVehicleReg||'Unassigned'}</td>
+    <td>${u.status}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-blue" onclick="editDriverAccount('${u.id}')">Edit</button><button class="btn btn-sm btn-red" onclick="deleteDriverAccount('${u.id}')">Delete</button></td></tr>`).join('')
+    || '<tr><td colspan=6 class="muted">No drivers yet</td></tr>';
+}
+
+// ---------- Maintenance ----------
+function populateMaintVehicleSelect(){
+  const sel = document.getElementById('mt_reg');
+  sel.innerHTML = vehicles.map(v=>`<option value="${v.reg}">${v.reg} - ${v.make} ${v.model}</option>`).join('');
+  onMaintVehicleChange();
+}
+function onMaintVehicleChange(){
+  const v = getVehicle(document.getElementById('mt_reg').value);
+  if (v && !editingMaintId) document.getElementById('mt_driver').value = v.driver;
+}
+function clearMaintForm(){
+  document.getElementById('mt_date').value = fmtDate(TODAY);
+  document.getElementById('mt_driver').value=''; document.getElementById('mt_desc').value='';
+  document.getElementById('mt_workshop').value=''; document.getElementById('mt_cost').value='';
+  document.getElementById('mt_invoice').value=''; document.getElementById('mt_authBy').value='';
+  document.getElementById('mt_odo').value=''; document.getElementById('mt_nextDue').value='';
+  document.getElementById('mt_category').value='Service'; document.getElementById('mt_status').value='Reported';
+  onMaintVehicleChange();
+}
+async function saveMaintenance(){
+  const reg = document.getElementById('mt_reg').value;
+  const date = document.getElementById('mt_date').value;
+  if (!reg || !date) { toast('Date and vehicle are required'); return; }
+  const payload = {
+    reg, driver_name: document.getElementById('mt_driver').value, log_date: date,
+    category: document.getElementById('mt_category').value, description: document.getElementById('mt_desc').value,
+    workshop: document.getElementById('mt_workshop').value, invoice_ref: document.getElementById('mt_invoice').value,
+    cost: parseFloat(document.getElementById('mt_cost').value)||0,
+    odometer_at_service: parseFloat(document.getElementById('mt_odo').value)||null,
+    next_service_due_km: parseFloat(document.getElementById('mt_nextDue').value)||null,
+    authorised_by: document.getElementById('mt_authBy').value, status: document.getElementById('mt_status').value,
+    reported_by: currentUser.id
+  };
+  let error;
+  if (editingMaintId) ({ error } = await sb.from('maintenance').update(payload).eq('id', editingMaintId));
+  else ({ error } = await sb.from('maintenance').insert(payload));
+  if (error) { toast('Error: ' + error.message); return; }
+  cancelMaintEdit();
+  await refreshMaintenance();
+  renderMaintTable();
+  toast('Maintenance record saved');
+}
+function editMaintenance(id){
+  const m = maintenance.find(x=>x.id===id); if (!m) return;
+  editingMaintId = id;
+  document.getElementById('mt_formTitle').textContent = 'Edit maintenance record';
+  document.getElementById('mt_date').value = m.date;
+  document.getElementById('mt_reg').value = m.reg;
+  document.getElementById('mt_driver').value = m.driver||'';
+  document.getElementById('mt_category').value = m.category;
+  document.getElementById('mt_desc').value = m.description||'';
+  document.getElementById('mt_workshop').value = m.workshop||'';
+  document.getElementById('mt_cost').value = m.cost||'';
+  document.getElementById('mt_invoice').value = m.invoiceRef||'';
+  document.getElementById('mt_authBy').value = m.authorisedBy||'';
+  document.getElementById('mt_odo').value = m.odometerAtService||'';
+  document.getElementById('mt_nextDue').value = m.nextServiceDueKm||'';
+  document.getElementById('mt_status').value = m.status;
+  document.getElementById('mt_cancelBtn').style.display='inline-flex';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function cancelMaintEdit(){
+  editingMaintId = null;
+  document.getElementById('mt_formTitle').textContent = 'Log maintenance / repair';
+  document.getElementById('mt_cancelBtn').style.display='none';
+  clearMaintForm();
+}
+async function deleteMaintenance(id){
+  if (!confirm('Delete this maintenance record?')) return;
+  const { error } = await sb.from('maintenance').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message); return; }
+  await refreshMaintenance();
+  renderMaintTable();
+}
+function renderMaintTable(){
+  const fs = document.getElementById('mt_filterStatus').value;
+  const fc = document.getElementById('mt_filterCat').value;
+  let rows = maintenance.slice().sort((a,b)=>new Date(b.date)-new Date(a.date) || b.id-a.id);
+  if (fs!=='all') rows = rows.filter(m=>m.status===fs);
+  if (fc!=='all') rows = rows.filter(m=>m.category===fc);
+  document.getElementById('mt_table').innerHTML = rows.map(m=>`
+    <tr><td>${m.date}</td><td>${m.reg}</td><td>${m.category}</td><td>${m.description||' - '}</td><td>${m.workshop||' - '}</td>
+    <td>${m.cost?money(m.cost):' - '}</td><td>${m.odometerAtService?Number(m.odometerAtService).toLocaleString()+' km':' - '}</td>
+    <td>${m.nextServiceDueKm?Number(m.nextServiceDueKm).toLocaleString()+' km':' - '}</td>
+    <td><span class="badge ${m.status.toLowerCase().replace(' ','')}">${m.status}</span></td>
+    <td class="row-actions"><button class="btn btn-sm btn-blue" onclick="editMaintenance(${m.id})">Edit</button><button class="btn btn-sm btn-red" onclick="deleteMaintenance(${m.id})">Delete</button></td></tr>`).join('')
+    || '<tr><td colspan=10 class="muted">No records match this filter</td></tr>';
+}
+
+// ---------- Tyres & Inspection ----------
+function renderTyreTable(){
+  vehicles.forEach(v=>ensureTyreRow(v.reg));
+  document.getElementById('ty_table').innerHTML = vehicles.map(v=>{
+    const t = tyres[v.reg];
+    return `<tr><td>${v.reg}</td><td>${v.make} ${v.model}</td><td>${t.fl||' - '}</td><td>${t.fr||' - '}</td><td>${t.rl||' - '}</td><td>${t.rr||' - '}</td>
+    <td>${t.spare||' - '}</td><td>${t.nextReplace||' - '}</td><td>${t.nextInsp||' - '}</td><td>${t.roadworthy||' - '}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-blue" onclick="editTyre('${v.reg}')">Edit</button></td></tr>`;
+  }).join('') || '<tr><td colspan=11 class="muted">No vehicles yet - add one in Vehicle Master</td></tr>';
+}
+function editTyre(reg){
+  ensureTyreRow(reg);
+  editingTyreReg = reg;
+  const t = tyres[reg];
+  document.getElementById('ty_formReg').textContent = reg;
+  document.getElementById('ty_fl').value = t.fl; document.getElementById('ty_fr').value = t.fr;
+  document.getElementById('ty_rl').value = t.rl; document.getElementById('ty_rr').value = t.rr;
+  document.getElementById('ty_spare').value = t.spare;
+  document.getElementById('ty_lastReplace').value = t.lastReplace; document.getElementById('ty_nextReplace').value = t.nextReplace;
+  document.getElementById('ty_lastInsp').value = t.lastInsp; document.getElementById('ty_nextInsp').value = t.nextInsp;
+  document.getElementById('ty_roadworthy').value = t.roadworthy || 'Y';
+  document.getElementById('ty_notes').value = t.notes;
+  document.getElementById('ty_formCard').style.display = 'block';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function closeTyreForm(){ editingTyreReg = null; document.getElementById('ty_formCard').style.display='none'; }
+async function saveTyre(){
+  if (!editingTyreReg) return;
+  const payload = {
+    reg: editingTyreReg,
+    fl: document.getElementById('ty_fl').value, fr: document.getElementById('ty_fr').value,
+    rl: document.getElementById('ty_rl').value, rr: document.getElementById('ty_rr').value,
+    spare: document.getElementById('ty_spare').value,
+    last_replace: document.getElementById('ty_lastReplace').value || null, next_replace: document.getElementById('ty_nextReplace').value || null,
+    last_insp: document.getElementById('ty_lastInsp').value || null, next_insp: document.getElementById('ty_nextInsp').value || null,
+    roadworthy: document.getElementById('ty_roadworthy').value, notes: document.getElementById('ty_notes').value
+  };
+  const { error } = await sb.from('tyres').upsert(payload, { onConflict: 'reg' });
+  if (error) { toast('Error: ' + error.message); return; }
+  await refreshTyres();
+  closeTyreForm(); renderTyreTable();
+  toast('Tyre record saved');
+}
+
+// ---------- Driver Accountability ----------
+function populateIncidentVehicleSelect(){
+  document.getElementById('in_reg').innerHTML = vehicles.map(v=>`<option value="${v.reg}">${v.reg}</option>`).join('');
+}
+function clearIncidentForm(){
+  document.getElementById('in_date').value = fmtDate(TODAY);
+  ['in_driver','in_type','in_desc','in_km','in_cost','in_action','in_authBy','in_notes'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('in_fault').value='Driver'; document.getElementById('in_resolved').value='N';
+}
+async function saveIncident(){
+  const date = document.getElementById('in_date').value;
+  if (!date) { toast('Date is required'); return; }
+  const payload = {
+    incident_date: date, driver_name: document.getElementById('in_driver').value, reg: document.getElementById('in_reg').value,
+    incident_type: document.getElementById('in_type').value, description: document.getElementById('in_desc').value,
+    km: parseFloat(document.getElementById('in_km').value)||null, cost: parseFloat(document.getElementById('in_cost').value)||0,
+    fault: document.getElementById('in_fault').value, action_taken: document.getElementById('in_action').value,
+    resolved: document.getElementById('in_resolved').value, authorised_by: document.getElementById('in_authBy').value,
+    notes: document.getElementById('in_notes').value
+  };
+  let error;
+  if (editingIncidentId) ({ error } = await sb.from('incidents').update(payload).eq('id', editingIncidentId));
+  else ({ error } = await sb.from('incidents').insert(payload));
+  if (error) { toast('Error: ' + error.message); return; }
+  cancelIncidentEdit();
+  await refreshIncidents();
+  renderIncidentTable();
+  toast('Incident saved');
+}
+function editIncident(id){
+  const i = incidents.find(x=>x.id===id); if (!i) return;
+  editingIncidentId = id;
+  document.getElementById('in_formTitle').textContent = 'Edit incident';
+  document.getElementById('in_date').value = i.date; document.getElementById('in_driver').value = i.driverName||'';
+  document.getElementById('in_reg').value = i.reg; document.getElementById('in_type').value = i.incidentType||'';
+  document.getElementById('in_desc').value = i.description||''; document.getElementById('in_km').value = i.km||'';
+  document.getElementById('in_cost').value = i.cost||''; document.getElementById('in_fault').value = i.fault||'Driver';
+  document.getElementById('in_action').value = i.actionTaken||''; document.getElementById('in_authBy').value = i.authorisedBy||'';
+  document.getElementById('in_resolved').value = i.resolved||'N'; document.getElementById('in_notes').value = i.notes||'';
+  document.getElementById('in_cancelBtn').style.display='inline-flex';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function cancelIncidentEdit(){
+  editingIncidentId = null;
+  document.getElementById('in_formTitle').textContent = 'Log an incident';
+  document.getElementById('in_cancelBtn').style.display='none';
+  clearIncidentForm();
+}
+async function deleteIncident(id){
+  if (!confirm('Delete this incident record?')) return;
+  const { error } = await sb.from('incidents').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message); return; }
+  await refreshIncidents();
+  renderIncidentTable();
+}
+function renderIncidentTable(){
+  const rows = incidents.slice().sort((a,b)=>new Date(b.date)-new Date(a.date) || b.id-a.id);
+  document.getElementById('in_table').innerHTML = rows.map(i=>`
+    <tr><td>${i.date}</td><td>${i.driverName||' - '}</td><td>${i.reg||' - '}</td><td>${i.incidentType||' - '}</td>
+    <td>${i.km?Number(i.km).toLocaleString():' - '}</td><td>${i.cost?money(i.cost):' - '}</td><td>${i.fault||' - '}</td><td>${i.resolved||' - '}</td>
+    <td class="row-actions"><button class="btn btn-sm btn-blue" onclick="editIncident(${i.id})">Edit</button><button class="btn btn-sm btn-red" onclick="deleteIncident(${i.id})">Delete</button></td></tr>`).join('')
+    || '<tr><td colspan=9 class="muted">No incidents logged</td></tr>';
+}
+
+// ---------- Dashboard ----------
+let catChartInst=null, vehChartInst=null;
+function renderDashboard(){
+  renderDashStats(); renderDashAlerts(); renderDashCharts(); renderApprovalsTable(); renderMonthlyTable(); renderVehExpTable();
+}
+function renderDashStats(){
+  const totalKm = dailyLogs.reduce((s,e)=>s+e.km,0);
+  const totalFuel = dailyLogs.filter(e=>e.mode==='fuel').reduce((s,e)=>s+e.cost,0);
+  const totalMaint = maintenance.reduce((s,m)=>s+(m.cost||0),0);
+  const pending = dailyLogs.filter(e=>e.status==='pending').length + maintenance.filter(m=>m.status==='Reported'||m.status==='Pending').length;
+  const stats = [
+    {label:'Total km logged', value: totalKm.toLocaleString()+' km'},
+    {label:'Fuel spend', value: money(totalFuel)},
+    {label:'Maintenance spend', value: money(totalMaint)},
+    {label:'Open items', value: pending, alert: pending>0},
+  ];
+  document.getElementById('dashStats').innerHTML = stats.map(s=>`
+    <div class="stat ${s.alert?'alert':''}"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>`).join('');
+}
+function renderDashAlerts(){
+  const alerts = [];
+  vehicles.forEach(v=>{
+    const insD = daysUntil(v.insuranceExpiry);
+    const licD = daysUntil(v.licenceExpiry);
+    if (insD!==null && insD<=30) alerts.push(`<b>${v.reg}</b> insurance ${insD<0?'expired':'expires in '+insD+' days'} (${v.insuranceExpiry})`);
+    if (licD!==null && licD<=30) alerts.push(`<b>${v.reg}</b> licence ${licD<0?'expired':'expires in '+licD+' days'} (${v.licenceExpiry})`);
+    const nextDue = getNextServiceDue(v.reg);
+    if (nextDue) {
+      const kmToService = nextDue - getCurrentOdometer(v.reg);
+      if (kmToService <= 500) alerts.push(`<b>${v.reg}</b> service due ${kmToService<0?'(overdue by '+Math.abs(kmToService)+' km)':'in '+kmToService+' km'}`);
+    }
+    const t = tyres[v.reg];
+    if (t) {
+      const insp = daysUntil(t.nextInsp);
+      if (insp!==null && insp<=30) alerts.push(`<b>${v.reg}</b> inspection ${insp<0?'overdue':'due in '+insp+' days'} (${t.nextInsp})`);
+      const repl = daysUntil(t.nextReplace);
+      if (repl!==null && repl<=30) alerts.push(`<b>${v.reg}</b> tyre replacement ${repl<0?'overdue':'due in '+repl+' days'} (${t.nextReplace})`);
+    }
+  });
+  document.getElementById('dashAlerts').innerHTML = alerts.length
+    ? alerts.map(a=>`<div class="alertbox">${a}</div>`).join('')
+    : '<div class="muted">No alerts - all vehicles current.</div>';
+}
+function renderDashCharts(){
+  const byCat = {};
+  dailyLogs.filter(e=>e.cost>0).forEach(e=>{ byCat[e.category]=(byCat[e.category]||0)+e.cost; });
+  maintenance.forEach(m=>{ if(m.cost>0) byCat[m.category]=(byCat[m.category]||0)+m.cost; });
+  const byVeh = {};
+  dailyLogs.filter(e=>e.cost>0).forEach(e=>{ byVeh[e.reg]=(byVeh[e.reg]||0)+e.cost; });
+  maintenance.forEach(m=>{ if(m.cost>0) byVeh[m.reg]=(byVeh[m.reg]||0)+m.cost; });
+
+  if (window.Chart) {
+    if (catChartInst) catChartInst.destroy();
+    if (vehChartInst) vehChartInst.destroy();
+    catChartInst = new Chart(document.getElementById('catChart'), {
+      type:'doughnut',
+      data:{ labels:Object.keys(byCat), datasets:[{ data:Object.values(byCat), backgroundColor:['#111827','#6366f1','#f59e0b','#10b981','#ef4444','#0ea5e9','#a855f7','#84cc16'] }]},
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{position:'bottom', labels:{boxWidth:10, font:{size:11}}}} }
+    });
+    vehChartInst = new Chart(document.getElementById('vehChart'), {
+      type:'bar',
+      data:{ labels:Object.keys(byVeh), datasets:[{ label:'Spend (USD)', data:Object.values(byVeh), backgroundColor:'#111827' }]},
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
+    });
+  }
+}
+function renderApprovalsTable(){
+  const filter = document.getElementById('a_filter').value;
+  let rows = dailyLogs.slice().sort((a,b)=>b.id-a.id);
+  if (filter==='pending') rows = rows.filter(e=>e.status==='pending');
+  if (filter==='fuel') rows = rows.filter(e=>e.mode==='fuel');
+  if (filter==='repair') rows = rows.filter(e=>e.mode==='repair');
+  document.getElementById('a_table').innerHTML = rows.map(e=>`
+    <tr>
+      <td>${e.date}</td><td>${e.reg}</td><td>${e.driver}</td><td>${e.startKm.toLocaleString()}</td><td>${e.closingKm.toLocaleString()}</td>
+      <td>${e.km} km</td><td>${e.mode}</td><td>${e.cost? money(e.cost):' - '}</td>
+      <td><span class="badge ${e.status}">${e.status}</span></td>
+      <td class="row-actions">
+        ${e.status!=='approved' ? `<button class="btn btn-sm btn-green" onclick="setLogStatus(${e.id},'approved')">Approve</button>`:''}
+        ${e.status!=='flagged' ? `<button class="btn btn-sm btn-red" onclick="setLogStatus(${e.id},'flagged')">Flag</button>`:''}
+      </td>
+    </tr>`).join('') || '<tr><td colspan=10 class="muted">No entries match this filter</td></tr>';
+}
+async function setLogStatus(id, status){
+  const { error } = await sb.from('daily_logs').update({ status }).eq('id', id);
+  if (error) { toast('Error: ' + error.message); return; }
+  await refreshDailyLogs();
+  renderApprovalsTable(); renderDriverHistory();
+}
+function exportCSV(){
+  const header = ['Date','Reg','Driver','Start km','Closing km','Km','Mode','Category','Cost','Status','Purpose'];
+  const lines = [header.join(',')].concat(dailyLogs.map(e=>[e.date,e.reg,e.driver,e.startKm,e.closingKm,e.km,e.mode,e.category,e.cost,e.status,'"'+(e.purpose||'').replace(/"/g,'""')+'"'].join(',')));
+  const blob = new Blob([lines.join('\n')], {type:'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'fleet_daily_log.csv'; a.click();
+}
+function monthlyCosts(){
+  const rows = { 'Fuel (Petrol/Hybrid/Electric)': Array(12).fill(0), 'Fuel (Diesel)': Array(12).fill(0), 'Maintenance & Repairs': Array(12).fill(0) };
+  dailyLogs.filter(e=>e.mode==='fuel').forEach(e=>{
+    const m = monthIdx(e.date); if (m===null) return;
+    const v = getVehicle(e.reg);
+    const isDiesel = v && v.fuelType==='Diesel';
+    rows[isDiesel?'Fuel (Diesel)':'Fuel (Petrol/Hybrid/Electric)'][m] += e.cost;
+  });
+  maintenance.forEach(m=>{
+    const mi = monthIdx(m.date); if (mi===null) return;
+    rows['Maintenance & Repairs'][mi] += (m.cost||0);
+  });
+  return rows;
+}
+function renderMonthlyTable(){
+  const rows = monthlyCosts();
+  const total = Array(12).fill(0);
+  Object.values(rows).forEach(arr=>arr.forEach((v,i)=>total[i]+=v));
+  let html = '<thead><tr><th>Category</th>' + MONTHS.map(m=>`<th>${m}</th>`).join('') + '<th>Total</th></tr></thead><tbody>';
+  Object.entries(rows).forEach(([label,arr])=>{
+    const t = arr.reduce((a,b)=>a+b,0);
+    html += `<tr><td>${label}</td>${arr.map(v=>`<td>${v?money(v):' - '}</td>`).join('')}<td><b>${money(t)}</b></td></tr>`;
+  });
+  const grand = total.reduce((a,b)=>a+b,0);
+  html += `<tr><td><b>TOTAL</b></td>${total.map(v=>`<td><b>${v?money(v):' - '}</b></td>`).join('')}<td><b>${money(grand)}</b></td></tr>`;
+  html += '</tbody>';
+  document.getElementById('monthlyTable').innerHTML = html;
+}
+function renderVehExpTable(){
+  let html = '<thead><tr><th>Reg</th><th>Make</th><th>Driver</th>' + MONTHS.map(m=>`<th>${m}</th>`).join('') + '<th>YTD Total</th><th>Avg/Month</th></tr></thead><tbody>';
+  vehicles.forEach(v=>{
+    const arr = Array(12).fill(0);
+    dailyLogs.filter(e=>e.reg===v.reg && e.cost>0).forEach(e=>{ const m=monthIdx(e.date); if(m!==null) arr[m]+=e.cost; });
+    maintenance.filter(m=>m.reg===v.reg).forEach(m=>{ const mi=monthIdx(m.date); if(mi!==null) arr[mi]+=(m.cost||0); });
+    const total = arr.reduce((a,b)=>a+b,0);
+    const monthsWithData = arr.filter(v=>v>0).length;
+    const avg = monthsWithData ? total/monthsWithData : 0;
+    html += `<tr><td>${v.reg}</td><td>${v.make}</td><td>${v.driver}</td>${arr.map(x=>`<td>${x?money(x):' - '}</td>`).join('')}<td><b>${money(total)}</b></td><td>${avg?money(avg):' - '}</td></tr>`;
+  });
+  html += '</tbody>';
+  document.getElementById('vehExpTable').innerHTML = html;
+}
+
+// ---------- Init ----------
+function initAppData(){
+  clearVehicleForm();
+  document.getElementById('mt_date').value = fmtDate(TODAY);
+  document.getElementById('in_date').value = fmtDate(TODAY);
+  populateDriverDropdowns();
+  populateMaintVehicleSelect();
+  populateIncidentVehicleSelect();
+  clearDriverForm();
+  renderDriverHistory();
+  document.getElementById('d_driver').addEventListener('change', renderDriverHistory);
+}
+(async function initAuth(){
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) { await afterAuth(); }
+})();
+</script>
+
