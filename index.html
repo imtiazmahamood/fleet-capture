@@ -509,11 +509,12 @@
         <div class="field"><label>From date</label><input type="date" id="km_from" onchange="renderKmLogTable()"></div>
         <div class="field"><label>To date</label><input type="date" id="km_to" onchange="renderKmLogTable()"></div>
       </div>
-      <div id="km_total" class="readonly-note"></div>
+      <div class="grid4" id="km_totals" style="margin:12px 0"></div>
       <div class="table-scroll">
         <table>
           <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Start km</th><th>Closing km</th><th>Km</th><th>Status</th><th>Notes</th></tr></thead>
           <tbody id="km_table"></tbody>
+          <tfoot id="km_tfoot"></tfoot>
         </table>
       </div>
     </div>
@@ -529,11 +530,12 @@
         <div class="field"><label>From date</label><input type="date" id="fuel_from" onchange="renderFuelLogTable()"></div>
         <div class="field"><label>To date</label><input type="date" id="fuel_to" onchange="renderFuelLogTable()"></div>
       </div>
-      <div id="fuel_total" class="readonly-note"></div>
+      <div class="grid4" id="fuel_totals" style="margin:12px 0"></div>
       <div class="table-scroll">
         <table>
           <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Fill-up odo</th><th>Litres</th><th>Cost</th><th>Km/L</th><th>Status</th></tr></thead>
           <tbody id="fuel_table"></tbody>
+          <tfoot id="fuel_tfoot"></tfoot>
         </table>
       </div>
     </div>
@@ -1502,21 +1504,41 @@ function clearFuelFilters(){
 function renderKmLogTable(){
   const rows = filterLogsByDashCriteria('km').filter(e=>e.status!=='flagged');
   const totalKm = rows.reduce((s,e)=>s+e.km,0);
-  document.getElementById('km_total').textContent = rows.length
-    ? `${rows.length} entries - ${totalKm.toLocaleString()} km total`
-    : 'No entries match these filters.';
+  const vehCount = new Set(rows.map(e=>e.reg)).size;
+  const avgKm = rows.length ? totalKm/rows.length : 0;
+  const stats = [
+    {label:'Entries', value: rows.length},
+    {label:'Total km', value: totalKm.toLocaleString()+' km'},
+    {label:'Avg km / entry', value: avgKm ? avgKm.toFixed(0)+' km' : ' - '},
+    {label:'Vehicles covered', value: vehCount},
+  ];
+  document.getElementById('km_totals').innerHTML = stats.map(s=>`
+    <div class="stat"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>`).join('');
   document.getElementById('km_table').innerHTML = rows.map(e=>`
     <tr><td>${e.date}</td><td>${e.reg}</td><td>${e.driver}</td><td>${e.startKm.toLocaleString()}</td><td>${e.closingKm.toLocaleString()}</td>
     <td>${e.km} km</td><td><span class="badge ${e.status}">${e.status}</span></td><td>${e.notes ? esc(e.notes) : ' - '}</td></tr>`).join('')
     || '<tr><td colspan=8 class="muted">No entries match these filters</td></tr>';
+  document.getElementById('km_tfoot').innerHTML = rows.length
+    ? `<tr><td colspan="5" style="text-align:right"><b>Total</b></td><td><b>${totalKm.toLocaleString()} km</b></td><td colspan="2"></td></tr>`
+    : '';
 }
 function renderFuelLogTable(){
   const rows = filterLogsByDashCriteria('fuel').filter(e=>e.mode==='fuel');
   const totalCost = rows.reduce((s,e)=>s+(e.cost||0),0);
   const totalLitres = rows.reduce((s,e)=>s+(Number(e.litres)||0),0);
-  document.getElementById('fuel_total').textContent = rows.length
-    ? `${rows.length} fill-ups - ${money(totalCost)} total${totalLitres ? ', ' + totalLitres.toFixed(1) + ' litres' : ''}`
-    : 'No fill-ups match these filters.';
+  let kmForKml = 0, litresForKml = 0;
+  rows.forEach(e=>{
+    if (e.odometerAtRefuel && e.litres) { kmForKml += (e.odometerAtRefuel - e.startKm); litresForKml += Number(e.litres); }
+  });
+  const avgKml = litresForKml ? kmForKml/litresForKml : null;
+  const stats = [
+    {label:'Fill-ups', value: rows.length},
+    {label:'Total litres', value: totalLitres ? totalLitres.toFixed(1)+' L' : ' - '},
+    {label:'Total fuel spend', value: money(totalCost)},
+    {label:'Avg km / L', value: (avgKml!==null && isFinite(avgKml)) ? avgKml.toFixed(1) : ' - '},
+  ];
+  document.getElementById('fuel_totals').innerHTML = stats.map(s=>`
+    <div class="stat"><div class="label">${s.label}</div><div class="value">${s.value}</div></div>`).join('');
   document.getElementById('fuel_table').innerHTML = rows.map(e=>{
     const kml = (e.odometerAtRefuel && e.litres) ? ((e.odometerAtRefuel - e.startKm) / e.litres) : null;
     return `<tr><td>${e.date}</td><td>${e.reg}</td><td>${e.driver}</td>
@@ -1526,6 +1548,9 @@ function renderFuelLogTable(){
     <td>${kml!==null && isFinite(kml) ? kml.toFixed(1) : ' - '}</td>
     <td><span class="badge ${e.status}">${e.status}</span></td></tr>`;
   }).join('') || '<tr><td colspan=8 class="muted">No fill-ups match these filters</td></tr>';
+  document.getElementById('fuel_tfoot').innerHTML = rows.length
+    ? `<tr><td colspan="4" style="text-align:right"><b>Total</b></td><td><b>${totalLitres.toFixed(1)} L</b></td><td><b>${money(totalCost)}</b></td><td colspan="2"></td></tr>`
+    : '';
 }
 function renderDashStats(){
   // Usage km driven (closing - start), excluding entries an admin has flagged as incorrect --
