@@ -163,10 +163,11 @@
 
       <div id="fuelFields" style="display:none">
         <div class="grid3">
+          <div class="field"><label>Odometer reading at fill-up (km) *</label><input type="number" id="d_fuelOdo" placeholder="e.g. 45230"></div>
           <div class="field"><label>Litres</label><input type="number" id="d_litres" placeholder="e.g. 40"></div>
           <div class="field"><label>Cost (USD)</label><input type="number" id="d_fuelCost" placeholder="e.g. 65.00"></div>
-          <div class="field"><label>Receipt photo</label><input type="file" accept="image/*" capture="environment" id="d_fuelPhoto"></div>
         </div>
+        <div class="field"><label>Receipt photo</label><input type="file" accept="image/*" capture="environment" id="d_fuelPhoto"></div>
       </div>
 
       <div id="repairFields" style="display:none">
@@ -455,7 +456,7 @@
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Start km</th><th>Closing km</th><th>Km</th><th>Type</th><th>Cost</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Start km</th><th>Closing km</th><th>Km</th><th>Type</th><th>Fill-up odo</th><th>Km/L</th><th>Cost</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="a_table"></tbody>
         </table>
       </div>
@@ -609,8 +610,8 @@ async function refreshDailyLogs(){
   dailyLogs = (data||[]).map(e=>({
     id:e.id, date:e.log_date, reg:e.reg, driver:e.driver_name, driverId:e.driver_id,
     startKm:Number(e.start_km), closingKm:Number(e.closing_km), km:Number(e.km), mode:e.mode,
-    cost:Number(e.cost)||0, category:e.category||'-', litres:e.litres, purpose:e.purpose||'',
-    notes:e.notes||'', status:e.status||'pending'
+    cost:Number(e.cost)||0, category:e.category||'-', litres:e.litres, odometerAtRefuel:e.odometer_at_refuel,
+    purpose:e.purpose||'', notes:e.notes||'', status:e.status||'pending'
   }));
 }
 async function refreshMaintenance(){
@@ -724,11 +725,14 @@ async function submitEntry(){
   const km = closing - start;
   if (km < 0) { toast('Closing km is lower than start km - check and re-enter'); return; }
 
-  let mode = 'trip', cost = 0, category = '-';
+  let mode = 'trip', cost = 0, category = '-', fuelOdo = null;
   const purpose = document.getElementById('d_purpose').value || 'Trip';
   if (expenseMode === 'fuel') {
     mode = 'fuel'; category = 'Fuel';
     cost = parseFloat(document.getElementById('d_fuelCost').value) || 0;
+    fuelOdo = parseFloat(document.getElementById('d_fuelOdo').value);
+    if (isNaN(fuelOdo)) { toast('Enter the odometer reading at the time of fill-up'); return; }
+    if (fuelOdo < start) { toast('Fill-up odometer reading looks too low - check and re-enter'); return; }
   } else if (expenseMode === 'repair') {
     mode = 'repair';
     category = document.getElementById('d_repairCat').value;
@@ -744,6 +748,7 @@ async function submitEntry(){
     driver_id: driverId, driver_name: driverName, reg: v.reg, log_date: logDate,
     start_km: start, closing_km: closing, km, mode, category, cost,
     litres: expenseMode==='fuel' ? (parseFloat(document.getElementById('d_litres').value)||null) : null,
+    odometer_at_refuel: fuelOdo,
     purpose, notes: document.getElementById('d_notes').value, status: 'pending'
   });
   if (error) { toast('Error saving log: ' + error.message); return; }
@@ -761,7 +766,7 @@ async function submitEntry(){
   document.getElementById('d_closingKm').value=''; document.getElementById('d_purpose').value='';
   document.getElementById('d_notes').value=''; document.getElementById('d_litres').value='';
   document.getElementById('d_fuelCost').value=''; document.getElementById('d_repairCost').value='';
-  document.getElementById('d_repairDesc').value='';
+  document.getElementById('d_repairDesc').value=''; document.getElementById('d_fuelOdo').value='';
 
   await refreshDailyLogs(); await refreshMaintenance();
   onVehicleChange(); setExpenseMode('none');
@@ -1214,16 +1219,22 @@ function renderApprovalsTable(){
   if (filter==='pending') rows = rows.filter(e=>e.status==='pending');
   if (filter==='fuel') rows = rows.filter(e=>e.mode==='fuel');
   if (filter==='repair') rows = rows.filter(e=>e.mode==='repair');
-  document.getElementById('a_table').innerHTML = rows.map(e=>`
+  document.getElementById('a_table').innerHTML = rows.map(e=>{
+    const kml = (e.mode==='fuel' && e.odometerAtRefuel && e.litres) ? ((e.odometerAtRefuel - e.startKm) / e.litres) : null;
+    return `
     <tr>
       <td>${e.date}</td><td>${e.reg}</td><td>${e.driver}</td><td>${e.startKm.toLocaleString()}</td><td>${e.closingKm.toLocaleString()}</td>
-      <td>${e.km} km</td><td>${e.mode}</td><td>${e.cost? money(e.cost):' - '}</td>
+      <td>${e.km} km</td><td>${e.mode}</td>
+      <td>${e.odometerAtRefuel ? Number(e.odometerAtRefuel).toLocaleString() : ' - '}</td>
+      <td>${kml!==null && isFinite(kml) ? kml.toFixed(1) : ' - '}</td>
+      <td>${e.cost? money(e.cost):' - '}</td>
       <td><span class="badge ${e.status}">${e.status}</span></td>
       <td class="row-actions">
         ${e.status!=='approved' ? `<button class="btn btn-sm btn-green" onclick="setLogStatus(${e.id},'approved')">Approve</button>`:''}
         ${e.status!=='flagged' ? `<button class="btn btn-sm btn-red" onclick="setLogStatus(${e.id},'flagged')">Flag</button>`:''}
       </td>
-    </tr>`).join('') || '<tr><td colspan=10 class="muted">No entries match this filter</td></tr>';
+    </tr>`;
+  }).join('') || '<tr><td colspan=12 class="muted">No entries match this filter</td></tr>';
 }
 async function setLogStatus(id, status){
   const { error } = await sb.from('daily_logs').update({ status }).eq('id', id);
@@ -1232,8 +1243,8 @@ async function setLogStatus(id, status){
   renderApprovalsTable(); renderDriverHistory();
 }
 function exportCSV(){
-  const header = ['Date','Reg','Driver','Start km','Closing km','Km','Mode','Category','Cost','Status','Purpose'];
-  const lines = [header.join(',')].concat(dailyLogs.map(e=>[e.date,e.reg,e.driver,e.startKm,e.closingKm,e.km,e.mode,e.category,e.cost,e.status,'"'+(e.purpose||'').replace(/"/g,'""')+'"'].join(',')));
+  const header = ['Date','Reg','Driver','Start km','Closing km','Km','Mode','Fill-up odo','Litres','Category','Cost','Status','Purpose'];
+  const lines = [header.join(',')].concat(dailyLogs.map(e=>[e.date,e.reg,e.driver,e.startKm,e.closingKm,e.km,e.mode,e.odometerAtRefuel||'',e.litres||'',e.category,e.cost,e.status,'"'+(e.purpose||'').replace(/"/g,'""')+'"'].join(',')));
   const blob = new Blob([lines.join('\n')], {type:'text/csv'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'fleet_daily_log.csv'; a.click();
