@@ -1,3 +1,12 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FleetCapture</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#111827">
+<link rel="apple-touch-icon" href="icon-192.png">
 <script type="application/json" id="cowork-artifact-meta">
 {
   "name": "Fleet Capture Prototype",
@@ -88,6 +97,8 @@
   .userbadge { display:flex; align-items:center; gap:8px; font-size:12px; }
 </style>
 
+</head>
+<body>
 <div class="login-wrap" id="loginScreen">
   <div class="login-card">
     <h1>FleetCapture sign in</h1>
@@ -106,6 +117,7 @@
       <h1>FleetCapture</h1>
       <p>Daily km &amp; fuel | vehicle master | maintenance | tyres | driver log | dashboard</p>
     </div>
+    <div class="userbadge" id="connBadge"></div>
     <div class="userbadge" id="userBadge"></div>
     <div class="tabs" id="tabBar"></div>
   </div>
@@ -520,13 +532,76 @@ let editingIncidentId = null;
 let editingTyreReg = null;
 let editingDriverId = null;
 
+// ---------- Offline cache + outbox ----------
+function loadLocal(key, fallback){ try{ const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }catch(e){ return fallback; } }
+function saveLocal(key, data){ try{ localStorage.setItem(key, JSON.stringify(data)); }catch(e){} }
+
+let outbox = loadLocal('fc_outbox', []);
+let isOffline = false;
+let syncing = false;
+
+function saveVehicleSnapshot(){
+  const snap = {};
+  vehicles.forEach(v=>{ snap[v.reg] = Object.assign({}, v, { currentKm: getCurrentOdometer(v.reg) }); });
+  saveLocal('fc_vehicle_snapshot', snap);
+}
+function loadFromSnapshot(){
+  isOffline = true;
+  const snap = loadLocal('fc_vehicle_snapshot', {});
+  vehicles = Object.values(snap);
+  dailyLogs = []; maintenance = []; tyres = {}; incidents = []; fmUsers = [];
+}
+function updateConnectivityBadge(){
+  const el = document.getElementById('connBadge');
+  if (!el) return;
+  const n = outbox.length;
+  if (!navigator.onLine || isOffline) {
+    el.innerHTML = `<span class="badge flagged">Offline${n?' - '+n+' queued':''}</span>`;
+  } else if (n>0) {
+    el.innerHTML = `<span class="badge pending">${n} queued</span> <button class="btn btn-ghost btn-sm" onclick="flushOutbox()">Sync now</button>`;
+  } else {
+    el.innerHTML = `<span class="badge approved">Online</span>`;
+  }
+}
+function enqueue(type, payload){
+  outbox.push({ id: 'q'+Date.now()+Math.random().toString(36).slice(2), type, payload, createdAt: new Date().toISOString() });
+  saveLocal('fc_outbox', outbox);
+  updateConnectivityBadge();
+}
+async function flushOutbox(){
+  if (syncing || !currentUser || !outbox.length) { updateConnectivityBadge(); return; }
+  syncing = true;
+  const startedWith = outbox.length;
+  try {
+    while (outbox.length) {
+      const item = outbox[0];
+      const table = item.type === 'daily_log' ? 'daily_logs' : 'maintenance';
+      const { error } = await sb.from(table).insert(item.payload);
+      if (error) break; // stop here, keep this and any remaining items queued, try again later
+      outbox.shift();
+      saveLocal('fc_outbox', outbox);
+    }
+  } catch (e) { /* still offline or a transient failure -- leave whatever's left queued */ }
+  syncing = false;
+  updateConnectivityBadge();
+  if (outbox.length < startedWith) {
+    isOffline = false;
+    await refreshDailyLogs(); await refreshMaintenance();
+    renderDriverHistory();
+    if (document.getElementById('view-dashboard') && document.getElementById('view-dashboard').style.display !== 'none') renderApprovalsTable();
+    toast(outbox.length ? 'Synced some queued entries - still working through the rest' : 'Synced - all queued entries uploaded');
+  }
+}
+
 function getVehicle(reg){ return vehicles.find(v=>v.reg===reg); }
 function getCurrentOdometer(reg){
   let vals = [];
   const v = getVehicle(reg);
   if (v && v.openingOdometer) vals.push(Number(v.openingOdometer)||0);
+  if (v && v.currentKm) vals.push(Number(v.currentKm)||0); // present on offline-cached vehicles
   dailyLogs.filter(e=>e.reg===reg).forEach(e=>{ if(e.closingKm) vals.push(Number(e.closingKm)); });
   maintenance.filter(e=>e.reg===reg).forEach(e=>{ if(e.odometerAtService) vals.push(Number(e.odometerAtService)); });
+  outbox.filter(o=>o.type==='daily_log' && o.payload.reg===reg).forEach(o=>{ if(o.payload.closing_km) vals.push(Number(o.payload.closing_km)); });
   return vals.length ? Math.max(...vals) : 0;
 }
 function getNextServiceDue(reg){
@@ -565,11 +640,18 @@ async function logout(){
 async function afterAuth(){
   const { data: { session } } = await sb.auth.getSession();
   if (!session) return;
-  const { data: profile, error } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
-  if (error || !profile) {
-    document.getElementById('loginError').textContent = 'Could not load your profile. Contact your admin.';
-    await sb.auth.signOut();
-    return;
+  let profile = null;
+  try {
+    const { data, error } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
+    if (error) throw error;
+    profile = data;
+    saveLocal('fc_cached_profile_' + session.user.id, profile);
+  } catch (e) {
+    profile = loadLocal('fc_cached_profile_' + session.user.id, null);
+    if (!profile) {
+      document.getElementById('loginError').textContent = 'No connection, and no offline copy of your profile yet. Connect to the internet once and log in again.';
+      return;
+    }
   }
   currentUser = { id: profile.id, name: profile.name, username: profile.username, role: profile.role, status: profile.status };
   document.getElementById('loginScreen').style.display = 'none';
@@ -580,6 +662,7 @@ async function afterAuth(){
   await loadAllData();
   initAppData();
   showTab('daily');
+  flushOutbox();
 }
 function currentTabAllowed(key){
   const t = TABS.find(t=>t[0]===key);
@@ -588,11 +671,21 @@ function currentTabAllowed(key){
 
 // ---------- Loading data from Supabase ----------
 async function loadAllData(){
-  await Promise.all([refreshVehicles(), refreshDrivers(), refreshDailyLogs(), refreshMaintenance(), refreshTyres(), refreshIncidents()]);
+  try {
+    await Promise.all([refreshVehicles(), refreshDrivers(), refreshDailyLogs(), refreshMaintenance(), refreshTyres(), refreshIncidents()]);
+    isOffline = false;
+    saveVehicleSnapshot();
+    saveLocal('fc_cached_vehicles_meta', true);
+  } catch (e) {
+    console.warn('Could not reach the server, falling back to cached data', e);
+    loadFromSnapshot();
+    toast('No connection - showing your last saved data');
+  }
+  updateConnectivityBadge();
 }
 async function refreshVehicles(){
   const { data, error } = await sb.from('vehicles').select('*').order('reg');
-  if (error) { console.error(error); toast('Could not load vehicles: ' + error.message); return; }
+  if (error) throw error;
   vehicles = (data||[]).map(v=>({
     reg:v.reg, fleetNo:v.fleet_no||'', make:v.make||'', model:v.model||'', fuelType:v.fuel_type||'Petrol',
     year:v.year||'', colour:v.colour||'', driver:v.driver||'', station:v.station||'', status:v.status||'Active',
@@ -601,12 +694,12 @@ async function refreshVehicles(){
 }
 async function refreshDrivers(){
   const { data, error } = await sb.from('profiles').select('*').eq('role','driver').order('name');
-  if (error) { console.error(error); return; }
+  if (error) throw error;
   fmUsers = (data||[]).map(u=>({ id:u.id, name:u.name, username:u.username, contact:u.contact||'', assignedVehicleReg:u.assigned_vehicle_reg||null, status:u.status||'Active' }));
 }
 async function refreshDailyLogs(){
   const { data, error } = await sb.from('daily_logs').select('*').order('id', { ascending:false });
-  if (error) { console.error(error); return; }
+  if (error) throw error;
   dailyLogs = (data||[]).map(e=>({
     id:e.id, date:e.log_date, reg:e.reg, driver:e.driver_name, driverId:e.driver_id,
     startKm:Number(e.start_km), closingKm:Number(e.closing_km), km:Number(e.km), mode:e.mode,
@@ -616,7 +709,7 @@ async function refreshDailyLogs(){
 }
 async function refreshMaintenance(){
   const { data, error } = await sb.from('maintenance').select('*').order('log_date', { ascending:false });
-  if (error) { console.error(error); return; }
+  if (error) throw error;
   maintenance = (data||[]).map(m=>({
     id:m.id, date:m.log_date, reg:m.reg, driver:m.driver_name, reportedBy:m.reported_by, category:m.category,
     description:m.description||'', workshop:m.workshop||'', invoiceRef:m.invoice_ref||'', cost:Number(m.cost)||0,
@@ -626,7 +719,7 @@ async function refreshMaintenance(){
 }
 async function refreshTyres(){
   const { data, error } = await sb.from('tyres').select('*');
-  if (error) { console.error(error); return; }
+  if (error) throw error;
   tyres = {};
   (data||[]).forEach(t=>{
     tyres[t.reg] = { fl:t.fl||'', fr:t.fr||'', rl:t.rl||'', rr:t.rr||'', spare:t.spare||'',
@@ -636,7 +729,7 @@ async function refreshTyres(){
 }
 async function refreshIncidents(){
   const { data, error } = await sb.from('incidents').select('*').order('incident_date', { ascending:false });
-  if (error) { console.error(error); return; }
+  if (error) throw error;
   incidents = (data||[]).map(i=>({
     id:i.id, date:i.incident_date, driverName:i.driver_name, reg:i.reg, incidentType:i.incident_type,
     description:i.description||'', km:i.km, cost:Number(i.cost)||0, fault:i.fault, actionTaken:i.action_taken||'',
@@ -744,23 +837,35 @@ async function submitEntry(){
   const driverId = currentUser.role==='driver' ? currentUser.id : (driverRecord ? driverRecord.id : null);
   const logDate = document.getElementById('d_date').value || fmtDate(TODAY);
 
-  const { error } = await sb.from('daily_logs').insert({
+  const logPayload = {
     driver_id: driverId, driver_name: driverName, reg: v.reg, log_date: logDate,
     start_km: start, closing_km: closing, km, mode, category, cost,
     litres: expenseMode==='fuel' ? (parseFloat(document.getElementById('d_litres').value)||null) : null,
     odometer_at_refuel: fuelOdo,
     purpose, notes: document.getElementById('d_notes').value, status: 'pending'
-  });
-  if (error) { toast('Error saving log: ' + error.message); return; }
+  };
+  const maintPayload = mode === 'repair' ? {
+    reg: v.reg, driver_name: driverName, reported_by: currentUser.id, log_date: logDate, category,
+    description: document.getElementById('d_repairDesc').value || category,
+    workshop: '', invoice_ref: '', cost, odometer_at_service: closing, next_service_due_km: null,
+    authorised_by: '', status: 'Reported'
+  } : null;
 
-  if (mode === 'repair') {
-    const { error: merr } = await sb.from('maintenance').insert({
-      reg: v.reg, driver_name: driverName, reported_by: currentUser.id, log_date: logDate, category,
-      description: document.getElementById('d_repairDesc').value || category,
-      workshop: '', invoice_ref: '', cost, odometer_at_service: closing, next_service_due_km: null,
-      authorised_by: '', status: 'Reported'
-    });
-    if (merr) toast('Log saved, but the repair report failed: ' + merr.message);
+  let queued = false;
+  try {
+    const { error } = await sb.from('daily_logs').insert(logPayload);
+    if (error) throw error;
+    if (maintPayload) {
+      const { error: merr } = await sb.from('maintenance').insert(maintPayload);
+      if (merr) toast('Log saved, but the repair report failed: ' + merr.message);
+    }
+    await refreshDailyLogs(); await refreshMaintenance();
+  } catch (e) {
+    const looksOffline = !navigator.onLine || e instanceof TypeError || /fetch|network/i.test(e && e.message || '');
+    if (!looksOffline) { toast('Error saving log: ' + e.message); return; }
+    enqueue('daily_log', logPayload);
+    if (maintPayload) enqueue('maintenance', maintPayload);
+    queued = true;
   }
 
   document.getElementById('d_closingKm').value=''; document.getElementById('d_purpose').value='';
@@ -768,18 +873,22 @@ async function submitEntry(){
   document.getElementById('d_fuelCost').value=''; document.getElementById('d_repairCost').value='';
   document.getElementById('d_repairDesc').value=''; document.getElementById('d_fuelOdo').value='';
 
-  await refreshDailyLogs(); await refreshMaintenance();
   onVehicleChange(); setExpenseMode('none');
-  toast(mode==='repair' ? 'Log submitted - repair reported to Maintenance' : 'Log submitted - thanks!');
+  toast(queued ? 'No connection - saved on this device and will sync automatically' : (mode==='repair' ? 'Log submitted - repair reported to Maintenance' : 'Log submitted - thanks!'));
   renderDriverHistory();
 }
 function renderDriverHistory(){
   const driver = document.getElementById('d_driver').value;
-  const rows = dailyLogs.filter(e=>e.driver===driver).sort((a,b)=>b.id-a.id).slice(0,8);
+  const queuedRows = outbox.filter(o=>o.type==='daily_log' && o.payload.driver_name===driver).map(o=>({
+    date:o.payload.log_date, startKm:o.payload.start_km, closingKm:o.payload.closing_km, km:o.payload.km,
+    cost:o.payload.cost, category:o.payload.category, status:'queued'
+  }));
+  const syncedRows = dailyLogs.filter(e=>e.driver===driver).sort((a,b)=>b.id-a.id);
+  const rows = queuedRows.concat(syncedRows).slice(0,8);
   document.getElementById('d_history').querySelector('tbody').innerHTML = rows.map(e=>`
     <tr><td>${e.date}</td><td>${e.startKm.toLocaleString()}</td><td>${e.closingKm.toLocaleString()}</td><td>${e.km} km</td>
     <td>${e.cost ? money(e.cost)+' ('+e.category+')' : ' - '}</td>
-    <td><span class="badge ${e.status}">${e.status}</span></td></tr>`).join('') || '<tr><td colspan=6 class="muted">No entries yet</td></tr>';
+    <td><span class="badge ${e.status==='queued'?'reported':e.status}">${e.status}</span></td></tr>`).join('') || '<tr><td colspan=6 class="muted">No entries yet</td></tr>';
 }
 
 // ---------- Vehicle Master ----------
@@ -1305,8 +1414,19 @@ function initAppData(){
   document.getElementById('d_driver').addEventListener('change', renderDriverHistory);
 }
 (async function initAuth(){
+  updateConnectivityBadge();
   const { data: { session } } = await sb.auth.getSession();
   if (session) { await afterAuth(); }
 })();
-</script>
 
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(e=>console.warn('Service worker registration failed', e));
+  });
+}
+window.addEventListener('online', () => { updateConnectivityBadge(); flushOutbox(); });
+window.addEventListener('offline', updateConnectivityBadge);
+setInterval(flushOutbox, 20000);
+</script>
+</body>
+</html>
