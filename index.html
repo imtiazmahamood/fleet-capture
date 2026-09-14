@@ -161,7 +161,17 @@
       </div>
       <div class="field">
         <label>Trip purpose</label>
-        <input type="text" id="d_purpose" placeholder="e.g. Client delivery, Admin run">
+        <input type="text" id="d_purpose" list="purposeOptions" placeholder="e.g. Client delivery, Admin run">
+        <datalist id="purposeOptions">
+          <option value="Client delivery"></option>
+          <option value="Site visit"></option>
+          <option value="Depot run"></option>
+          <option value="Admin run"></option>
+          <option value="Passenger transport"></option>
+          <option value="Fuel run"></option>
+          <option value="Collections"></option>
+          <option value="Other"></option>
+        </datalist>
       </div>
     </div>
 
@@ -209,7 +219,7 @@
     <div class="card">
       <h2>My recent submissions</h2>
       <div class="table-scroll">
-        <table id="d_history"><thead><tr><th>Date</th><th>Start km</th><th>Closing km</th><th>Km driven</th><th>Spend</th><th>Status</th></tr></thead><tbody></tbody></table>
+        <table id="d_history"><thead><tr><th>Date</th><th>Start km</th><th>Closing km</th><th>Km driven</th><th>Spend</th><th>Status</th><th>Notes</th></tr></thead><tbody></tbody></table>
       </div>
     </div>
   </div>
@@ -291,6 +301,41 @@
         <table>
           <thead><tr><th>Name</th><th>Username</th><th>Contact</th><th>Assigned Vehicle</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="dr_table"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- USER MANAGEMENT -->
+  <div id="view-users" style="display:none">
+    <div class="card">
+      <h2 id="us_formTitle">Add a user</h2>
+      <div class="grid4">
+        <div class="field"><label>Full Name *</label><input type="text" id="us_name"></div>
+        <div class="field"><label>Username *</label><input type="text" id="us_username" placeholder="lowercase, no spaces"></div>
+        <div class="field"><label>Password *</label><input type="text" id="us_password"></div>
+        <div class="field"><label>Contact</label><input type="text" id="us_contact"></div>
+      </div>
+      <div class="grid4">
+        <div class="field"><label>Role</label>
+          <select id="us_role" onchange="onUserRoleChange()"><option value="driver">Driver</option><option value="admin">Admin</option></select>
+        </div>
+        <div class="field" id="us_vehicleField"><label>Assigned Vehicle</label><select id="us_vehicle"></select></div>
+        <div class="field"><label>Status</label><select id="us_status"><option>Active</option><option>Inactive</option></select></div>
+      </div>
+      <div class="readonly-note">Admins get full access to every tab. Drivers only see the Daily Log and Guide. Disabling a user blocks their next login without deleting their history. You can't disable or delete the only active admin.</div>
+      <div class="form-actions">
+        <button class="btn btn-primary" onclick="saveUserAccount()">Save user</button>
+        <button class="btn btn-ghost" id="us_cancelBtn" style="display:none" onclick="cancelUserEdit()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>All users</h2>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Contact</th><th>Assigned Vehicle</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody id="us_table"></tbody>
         </table>
       </div>
     </div>
@@ -455,6 +500,46 @@
 
     <div class="card">
       <div class="card-head">
+        <h2>Km logged  -  consolidated view</h2>
+        <button class="btn btn-ghost btn-sm" onclick="clearKmFilters()">Clear filters</button>
+      </div>
+      <div class="grid4">
+        <div class="field"><label>Vehicle</label><select id="km_vehicle" onchange="renderKmLogTable()"><option value="">All vehicles</option></select></div>
+        <div class="field"><label>Driver</label><select id="km_driver" onchange="renderKmLogTable()"><option value="">All drivers</option></select></div>
+        <div class="field"><label>From date</label><input type="date" id="km_from" onchange="renderKmLogTable()"></div>
+        <div class="field"><label>To date</label><input type="date" id="km_to" onchange="renderKmLogTable()"></div>
+      </div>
+      <div id="km_total" class="readonly-note"></div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Start km</th><th>Closing km</th><th>Km</th><th>Status</th><th>Notes</th></tr></thead>
+          <tbody id="km_table"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h2>Fuel log  -  consolidated view</h2>
+        <button class="btn btn-ghost btn-sm" onclick="clearFuelFilters()">Clear filters</button>
+      </div>
+      <div class="grid4">
+        <div class="field"><label>Vehicle</label><select id="fuel_vehicle" onchange="renderFuelLogTable()"><option value="">All vehicles</option></select></div>
+        <div class="field"><label>Driver</label><select id="fuel_driver" onchange="renderFuelLogTable()"><option value="">All drivers</option></select></div>
+        <div class="field"><label>From date</label><input type="date" id="fuel_from" onchange="renderFuelLogTable()"></div>
+        <div class="field"><label>To date</label><input type="date" id="fuel_to" onchange="renderFuelLogTable()"></div>
+      </div>
+      <div id="fuel_total" class="readonly-note"></div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Fill-up odo</th><th>Litres</th><th>Cost</th><th>Km/L</th><th>Status</th></tr></thead>
+          <tbody id="fuel_table"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
         <h2>Pending approvals  -  daily log</h2>
         <div style="display:flex; gap:8px;">
           <select id="a_filter" onchange="renderApprovalsTable()" style="width:auto">
@@ -468,7 +553,7 @@
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Start km</th><th>Closing km</th><th>Km</th><th>Type</th><th>Fill-up odo</th><th>Km/L</th><th>Cost</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Start km</th><th>Closing km</th><th>Km</th><th>Type</th><th>Fill-up odo</th><th>Km/L</th><th>Cost</th><th>Notes</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="a_table"></tbody>
         </table>
       </div>
@@ -498,7 +583,8 @@
       <div class="guide-item"><b>Maintenance</b>Every service, repair, tyre change, or upgrade gets logged here with workshop, cost, invoice reference and status, whether entered directly or reported by a driver from the Daily Log.</div>
       <div class="guide-item"><b>Tyres &amp; Inspection</b>One row per vehicle tracking tyre size/brand per position, replacement dates, inspection dates and roadworthy status.</div>
       <div class="guide-item"><b>Driver Accountability</b>Record incidents, fines, damage or commendations against a driver and vehicle, with fault and resolution status.</div>
-      <div class="guide-item"><b>Dashboard</b>Live totals, expiry/service alerts, spend charts, the approval queue for daily log entries, and auto-calculated monthly and per-vehicle cost summaries  -  no manual totalling required.</div>
+      <div class="guide-item"><b>Dashboard</b>Live totals, expiry/service alerts, spend charts, filterable km and fuel logs, the approval queue for daily log entries, and auto-calculated monthly and per-vehicle cost summaries  -  no manual totalling required.</div>
+      <div class="guide-item"><b>User Management</b>Add admin or driver logins, change passwords, and enable/disable accounts without deleting their history. At least one active admin must always remain.</div>
     </div>
   </div>
 </div>
@@ -517,6 +603,7 @@ function fmtDate(d){ return d.toISOString().slice(0,10); }
 function daysUntil(dateStr){ if(!dateStr) return null; return Math.round((new Date(dateStr) - TODAY)/86400000); }
 function monthIdx(dateStr){ if(!dateStr) return null; return new Date(dateStr).getMonth(); }
 function money(n){ return '$'+(Number(n)||0).toFixed(2); }
+function esc(s){ const d = document.createElement('div'); d.textContent = s==null ? '' : String(s); return d.innerHTML; }
 
 let vehicles = [];
 let dailyLogs = [];
@@ -524,6 +611,7 @@ let maintenance = [];
 let tyres = {};
 let incidents = [];
 let fmUsers = []; // drivers only (role='driver'), sourced from the profiles table
+let allUsers = []; // every profile (admins + drivers), used by the User Management screen
 let currentUser = null;
 let expenseMode = 'none';
 let editingVehicleReg = null;
@@ -531,6 +619,7 @@ let editingMaintId = null;
 let editingIncidentId = null;
 let editingTyreReg = null;
 let editingDriverId = null;
+let editingUserId = null;
 
 // ---------- Offline cache + outbox ----------
 function loadLocal(key, fallback){ try{ const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }catch(e){ return fallback; } }
@@ -549,7 +638,7 @@ function loadFromSnapshot(){
   isOffline = true;
   const snap = loadLocal('fc_vehicle_snapshot', {});
   vehicles = Object.values(snap);
-  dailyLogs = []; maintenance = []; tyres = {}; incidents = []; fmUsers = [];
+  dailyLogs = []; maintenance = []; tyres = {}; incidents = []; fmUsers = []; allUsers = [];
 }
 function updateConnectivityBadge(){
   const el = document.getElementById('connBadge');
@@ -653,6 +742,11 @@ async function afterAuth(){
       return;
     }
   }
+  if (profile.status && profile.status !== 'Active') {
+    await sb.auth.signOut();
+    document.getElementById('loginError').textContent = 'This account has been disabled. Contact your administrator.';
+    return;
+  }
   currentUser = { id: profile.id, name: profile.name, username: profile.username, role: profile.role, status: profile.status };
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('mainApp').style.display = 'block';
@@ -672,7 +766,7 @@ function currentTabAllowed(key){
 // ---------- Loading data from Supabase ----------
 async function loadAllData(){
   try {
-    await Promise.all([refreshVehicles(), refreshDrivers(), refreshDailyLogs(), refreshMaintenance(), refreshTyres(), refreshIncidents()]);
+    await Promise.all([refreshVehicles(), refreshDrivers(), refreshUsers(), refreshDailyLogs(), refreshMaintenance(), refreshTyres(), refreshIncidents()]);
     isOffline = false;
     saveVehicleSnapshot();
     saveLocal('fc_cached_vehicles_meta', true);
@@ -696,6 +790,14 @@ async function refreshDrivers(){
   const { data, error } = await sb.from('profiles').select('*').eq('role','driver').order('name');
   if (error) throw error;
   fmUsers = (data||[]).map(u=>({ id:u.id, name:u.name, username:u.username, contact:u.contact||'', assignedVehicleReg:u.assigned_vehicle_reg||null, status:u.status||'Active' }));
+}
+async function refreshUsers(){
+  const { data, error } = await sb.from('profiles').select('*').order('role').order('name');
+  if (error) throw error;
+  allUsers = (data||[]).map(u=>({
+    id:u.id, name:u.name, username:u.username, role:u.role||'driver', contact:u.contact||'',
+    assignedVehicleReg:u.assigned_vehicle_reg||null, status:u.status||'Active'
+  }));
 }
 async function refreshDailyLogs(){
   const { data, error } = await sb.from('daily_logs').select('*').order('id', { ascending:false });
@@ -740,7 +842,8 @@ async function refreshIncidents(){
 // ---------- Tabs ----------
 const TABS = [
   ['daily','Daily Log','all'], ['master','Vehicle Master','admin'], ['drivers','Drivers','admin'], ['maint','Maintenance','admin'],
-  ['tyres','Tyres & Inspection','admin'], ['incidents','Driver Accountability','admin'], ['dashboard','Dashboard','admin'], ['guide','Guide','all']
+  ['tyres','Tyres & Inspection','admin'], ['incidents','Driver Accountability','admin'], ['dashboard','Dashboard','admin'],
+  ['users','User Management','admin'], ['guide','Guide','all']
 ];
 function buildTabBar(){
   const allowed = TABS.filter(t=> t[2]==='all' || (currentUser && currentUser.role==='admin'));
@@ -760,6 +863,7 @@ function showTab(key){
   if (key==='tyres') renderTyreTable();
   if (key==='incidents') renderIncidentTable();
   if (key==='dashboard') renderDashboard();
+  if (key==='users') renderUserTable();
 }
 
 // ---------- Daily Log ----------
@@ -781,6 +885,8 @@ function onDriverChange(){
   const vSel = document.getElementById('d_vehicle');
   vSel.innerHTML = opts.map(v=>`<option value="${v.reg}">${v.reg} - ${v.make} ${v.model}</option>`).join('');
   vSel.disabled = opts.length <= 1;
+  const lastPurpose = loadLocal('fc_last_purpose_' + driver, '');
+  document.getElementById('d_purpose').value = lastPurpose;
   onVehicleChange();
 }
 function onVehicleChange(){
@@ -833,6 +939,7 @@ async function submitEntry(){
   }
 
   const driverName = document.getElementById('d_driver').value;
+  saveLocal('fc_last_purpose_' + driverName, purpose);
   const driverRecord = fmUsers.find(u=>u.name===driverName);
   const driverId = currentUser.role==='driver' ? currentUser.id : (driverRecord ? driverRecord.id : null);
   const logDate = document.getElementById('d_date').value || fmtDate(TODAY);
@@ -868,7 +975,7 @@ async function submitEntry(){
     queued = true;
   }
 
-  document.getElementById('d_closingKm').value=''; document.getElementById('d_purpose').value='';
+  document.getElementById('d_closingKm').value='';
   document.getElementById('d_notes').value=''; document.getElementById('d_litres').value='';
   document.getElementById('d_fuelCost').value=''; document.getElementById('d_repairCost').value='';
   document.getElementById('d_repairDesc').value=''; document.getElementById('d_fuelOdo').value='';
@@ -881,14 +988,15 @@ function renderDriverHistory(){
   const driver = document.getElementById('d_driver').value;
   const queuedRows = outbox.filter(o=>o.type==='daily_log' && o.payload.driver_name===driver).map(o=>({
     date:o.payload.log_date, startKm:o.payload.start_km, closingKm:o.payload.closing_km, km:o.payload.km,
-    cost:o.payload.cost, category:o.payload.category, status:'queued'
+    cost:o.payload.cost, category:o.payload.category, status:'queued', notes:o.payload.notes||''
   }));
   const syncedRows = dailyLogs.filter(e=>e.driver===driver).sort((a,b)=>b.id-a.id);
   const rows = queuedRows.concat(syncedRows).slice(0,8);
   document.getElementById('d_history').querySelector('tbody').innerHTML = rows.map(e=>`
     <tr><td>${e.date}</td><td>${e.startKm.toLocaleString()}</td><td>${e.closingKm.toLocaleString()}</td><td>${e.km} km</td>
     <td>${e.cost ? money(e.cost)+' ('+e.category+')' : ' - '}</td>
-    <td><span class="badge ${e.status==='queued'?'reported':e.status}">${e.status}</span></td></tr>`).join('') || '<tr><td colspan=6 class="muted">No entries yet</td></tr>';
+    <td><span class="badge ${e.status==='queued'?'reported':e.status}">${e.status}</span></td>
+    <td>${e.notes ? esc(e.notes) : ' - '}</td></tr>`).join('') || '<tr><td colspan=7 class="muted">No entries yet</td></tr>';
 }
 
 // ---------- Vehicle Master ----------
@@ -1057,6 +1165,100 @@ function renderDriverTable(){
     <td>${u.status}</td>
     <td class="row-actions"><button class="btn btn-sm btn-blue" onclick="editDriverAccount('${u.id}')">Edit</button><button class="btn btn-sm btn-red" onclick="deleteDriverAccount('${u.id}')">Delete</button></td></tr>`).join('')
     || '<tr><td colspan=6 class="muted">No drivers yet</td></tr>';
+}
+
+// ---------- User Management (all roles, via Edge Function) ----------
+function onUserRoleChange(){
+  const isDriver = document.getElementById('us_role').value === 'driver';
+  document.getElementById('us_vehicleField').style.display = isDriver ? '' : 'none';
+}
+function populateUserVehicleSelect(selectedReg){
+  const sel = document.getElementById('us_vehicle');
+  sel.innerHTML = '<option value="">Unassigned</option>' + vehicles.map(v=>`<option value="${v.reg}">${v.reg} - ${v.make} ${v.model}</option>`).join('');
+  sel.value = selectedReg || '';
+}
+function clearUserForm(){
+  ['us_name','us_username','us_password','us_contact'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('us_role').value = 'driver';
+  document.getElementById('us_status').value = 'Active';
+  document.getElementById('us_username').disabled = false;
+  document.getElementById('us_password').placeholder = 'Choose a password';
+  populateUserVehicleSelect('');
+  onUserRoleChange();
+}
+async function saveUserAccount(){
+  const name = document.getElementById('us_name').value.trim();
+  const username = document.getElementById('us_username').value.trim().toLowerCase();
+  const password = document.getElementById('us_password').value;
+  const contact = document.getElementById('us_contact').value;
+  const role = document.getElementById('us_role').value;
+  const assignedVehicleReg = document.getElementById('us_vehicle').value || null;
+  const status = document.getElementById('us_status').value;
+  if (!name) { toast('Name is required'); return; }
+  if (!editingUserId && (!username || !password)) { toast('Username and password are required'); return; }
+  try {
+    if (editingUserId) {
+      await callAdminUsersFn({ action:'update', id: editingUserId, name, password: password || undefined, contact, role, assignedVehicleReg, status });
+    } else {
+      await callAdminUsersFn({ action:'create', name, username, password, contact, role, assignedVehicleReg, status });
+    }
+  } catch (e) { toast('Error: ' + e.message); return; }
+  cancelUserEdit();
+  await refreshUsers(); await refreshDrivers(); await refreshVehicles();
+  renderUserTable(); renderDriverTable(); renderVehicleTable(); populateVehicleDriverSelect(); populateDriverDropdowns(); renderDriverHistory();
+  toast('User saved');
+}
+function editUserAccount(id){
+  const u = allUsers.find(x=>x.id===id); if (!u) return;
+  editingUserId = id;
+  document.getElementById('us_formTitle').textContent = 'Edit user - ' + u.name;
+  document.getElementById('us_name').value = u.name;
+  document.getElementById('us_username').value = u.username;
+  document.getElementById('us_username').disabled = true;
+  document.getElementById('us_password').value = '';
+  document.getElementById('us_password').placeholder = 'Leave blank to keep current password';
+  document.getElementById('us_contact').value = u.contact||'';
+  document.getElementById('us_role').value = u.role||'driver';
+  populateUserVehicleSelect(u.assignedVehicleReg);
+  document.getElementById('us_status').value = u.status||'Active';
+  onUserRoleChange();
+  document.getElementById('us_cancelBtn').style.display='inline-flex';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function cancelUserEdit(){
+  editingUserId = null;
+  document.getElementById('us_formTitle').textContent = 'Add a user';
+  document.getElementById('us_cancelBtn').style.display='none';
+  clearUserForm();
+}
+async function toggleUserStatus(id, newStatus){
+  try { await callAdminUsersFn({ action:'update', id, status: newStatus }); }
+  catch(e){ toast('Error: ' + e.message); return; }
+  await refreshUsers(); await refreshDrivers();
+  renderUserTable(); renderDriverTable(); populateDriverDropdowns(); renderDriverHistory();
+  toast(newStatus === 'Active' ? 'User enabled' : 'User disabled');
+}
+async function deleteUserAccount(id){
+  if (!confirm('Delete this user account? This does not delete their logged history.')) return;
+  try { await callAdminUsersFn({ action:'delete', id }); }
+  catch(e){ toast('Error: ' + e.message); return; }
+  await refreshUsers(); await refreshDrivers(); await refreshVehicles();
+  renderUserTable(); renderDriverTable(); renderVehicleTable(); populateVehicleDriverSelect(); populateDriverDropdowns(); renderDriverHistory();
+}
+function renderUserTable(){
+  const rows = allUsers.slice().sort((a,b)=> a.role===b.role ? a.name.localeCompare(b.name) : (a.role==='admin'?-1:1));
+  document.getElementById('us_table').innerHTML = rows.map(u=>`
+    <tr><td>${u.name}</td><td>${u.username}</td><td><span class="badge ${u.role==='admin'?'approved':'pending'}">${u.role}</span></td>
+    <td>${u.contact||'-'}</td><td>${u.role==='driver' ? (u.assignedVehicleReg||'Unassigned') : ' - '}</td>
+    <td><span class="badge ${u.status==='Active'?'approved':'flagged'}">${u.status}</span></td>
+    <td class="row-actions">
+      <button class="btn btn-sm btn-blue" onclick="editUserAccount('${u.id}')">Edit</button>
+      ${u.status==='Active'
+        ? `<button class="btn btn-sm btn-red" onclick="toggleUserStatus('${u.id}','Inactive')">Disable</button>`
+        : `<button class="btn btn-sm btn-green" onclick="toggleUserStatus('${u.id}','Active')">Enable</button>`}
+      ${u.id!==currentUser.id ? `<button class="btn btn-sm btn-red" onclick="deleteUserAccount('${u.id}')">Delete</button>` : ''}
+    </td></tr>`).join('')
+    || '<tr><td colspan=7 class="muted">No users yet</td></tr>';
 }
 
 // ---------- Maintenance ----------
@@ -1259,10 +1461,76 @@ function renderIncidentTable(){
 // ---------- Dashboard ----------
 let catChartInst=null, vehChartInst=null;
 function renderDashboard(){
-  renderDashStats(); renderDashAlerts(); renderDashCharts(); renderApprovalsTable(); renderMonthlyTable(); renderVehExpTable();
+  populateDashFilters();
+  renderDashStats(); renderDashAlerts(); renderDashCharts(); renderKmLogTable(); renderFuelLogTable(); renderApprovalsTable(); renderMonthlyTable(); renderVehExpTable();
+}
+function populateDashFilters(){
+  const regs = vehicles.map(v=>v.reg).sort();
+  const names = Array.from(new Set(dailyLogs.map(e=>e.driver))).sort();
+  ['km_vehicle','fuel_vehicle'].forEach(id=>{
+    const sel = document.getElementById(id); const cur = sel.value;
+    sel.innerHTML = '<option value="">All vehicles</option>' + regs.map(r=>`<option value="${r}">${r}</option>`).join('');
+    if (regs.includes(cur)) sel.value = cur;
+  });
+  ['km_driver','fuel_driver'].forEach(id=>{
+    const sel = document.getElementById(id); const cur = sel.value;
+    sel.innerHTML = '<option value="">All drivers</option>' + names.map(n=>`<option value="${n}">${n}</option>`).join('');
+    if (names.includes(cur)) sel.value = cur;
+  });
+}
+function filterLogsByDashCriteria(prefix){
+  const reg = document.getElementById(prefix+'_vehicle').value;
+  const driver = document.getElementById(prefix+'_driver').value;
+  const from = document.getElementById(prefix+'_from').value;
+  const to = document.getElementById(prefix+'_to').value;
+  return dailyLogs.filter(e=>{
+    if (reg && e.reg!==reg) return false;
+    if (driver && e.driver!==driver) return false;
+    if (from && e.date < from) return false;
+    if (to && e.date > to) return false;
+    return true;
+  }).sort((a,b)=>b.date.localeCompare(a.date) || b.id-a.id);
+}
+function clearKmFilters(){
+  ['km_vehicle','km_driver','km_from','km_to'].forEach(id=>document.getElementById(id).value='');
+  renderKmLogTable();
+}
+function clearFuelFilters(){
+  ['fuel_vehicle','fuel_driver','fuel_from','fuel_to'].forEach(id=>document.getElementById(id).value='');
+  renderFuelLogTable();
+}
+function renderKmLogTable(){
+  const rows = filterLogsByDashCriteria('km').filter(e=>e.status!=='flagged');
+  const totalKm = rows.reduce((s,e)=>s+e.km,0);
+  document.getElementById('km_total').textContent = rows.length
+    ? `${rows.length} entries - ${totalKm.toLocaleString()} km total`
+    : 'No entries match these filters.';
+  document.getElementById('km_table').innerHTML = rows.map(e=>`
+    <tr><td>${e.date}</td><td>${e.reg}</td><td>${e.driver}</td><td>${e.startKm.toLocaleString()}</td><td>${e.closingKm.toLocaleString()}</td>
+    <td>${e.km} km</td><td><span class="badge ${e.status}">${e.status}</span></td><td>${e.notes ? esc(e.notes) : ' - '}</td></tr>`).join('')
+    || '<tr><td colspan=8 class="muted">No entries match these filters</td></tr>';
+}
+function renderFuelLogTable(){
+  const rows = filterLogsByDashCriteria('fuel').filter(e=>e.mode==='fuel');
+  const totalCost = rows.reduce((s,e)=>s+(e.cost||0),0);
+  const totalLitres = rows.reduce((s,e)=>s+(Number(e.litres)||0),0);
+  document.getElementById('fuel_total').textContent = rows.length
+    ? `${rows.length} fill-ups - ${money(totalCost)} total${totalLitres ? ', ' + totalLitres.toFixed(1) + ' litres' : ''}`
+    : 'No fill-ups match these filters.';
+  document.getElementById('fuel_table').innerHTML = rows.map(e=>{
+    const kml = (e.odometerAtRefuel && e.litres) ? ((e.odometerAtRefuel - e.startKm) / e.litres) : null;
+    return `<tr><td>${e.date}</td><td>${e.reg}</td><td>${e.driver}</td>
+    <td>${e.odometerAtRefuel ? Number(e.odometerAtRefuel).toLocaleString() : ' - '}</td>
+    <td>${e.litres ? Number(e.litres).toFixed(1) : ' - '}</td>
+    <td>${money(e.cost)}</td>
+    <td>${kml!==null && isFinite(kml) ? kml.toFixed(1) : ' - '}</td>
+    <td><span class="badge ${e.status}">${e.status}</span></td></tr>`;
+  }).join('') || '<tr><td colspan=8 class="muted">No fill-ups match these filters</td></tr>';
 }
 function renderDashStats(){
-  const totalKm = dailyLogs.reduce((s,e)=>s+e.km,0);
+  // Usage km driven (closing - start), excluding entries an admin has flagged as incorrect --
+  // NOT a raw sum of odometer readings, which would be meaningless across multiple vehicles.
+  const totalKm = dailyLogs.filter(e=>e.status!=='flagged').reduce((s,e)=>s+e.km,0);
   const totalFuel = dailyLogs.filter(e=>e.mode==='fuel').reduce((s,e)=>s+e.cost,0);
   const totalMaint = maintenance.reduce((s,m)=>s+(m.cost||0),0);
   const pending = dailyLogs.filter(e=>e.status==='pending').length + maintenance.filter(m=>m.status==='Reported'||m.status==='Pending').length;
@@ -1337,13 +1605,14 @@ function renderApprovalsTable(){
       <td>${e.odometerAtRefuel ? Number(e.odometerAtRefuel).toLocaleString() : ' - '}</td>
       <td>${kml!==null && isFinite(kml) ? kml.toFixed(1) : ' - '}</td>
       <td>${e.cost? money(e.cost):' - '}</td>
+      <td>${e.notes ? esc(e.notes) : ' - '}</td>
       <td><span class="badge ${e.status}">${e.status}</span></td>
       <td class="row-actions">
         ${e.status!=='approved' ? `<button class="btn btn-sm btn-green" onclick="setLogStatus(${e.id},'approved')">Approve</button>`:''}
         ${e.status!=='flagged' ? `<button class="btn btn-sm btn-red" onclick="setLogStatus(${e.id},'flagged')">Flag</button>`:''}
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan=12 class="muted">No entries match this filter</td></tr>';
+  }).join('') || '<tr><td colspan=13 class="muted">No entries match this filter</td></tr>';
 }
 async function setLogStatus(id, status){
   const { error } = await sb.from('daily_logs').update({ status }).eq('id', id);
@@ -1352,8 +1621,8 @@ async function setLogStatus(id, status){
   renderApprovalsTable(); renderDriverHistory();
 }
 function exportCSV(){
-  const header = ['Date','Reg','Driver','Start km','Closing km','Km','Mode','Fill-up odo','Litres','Category','Cost','Status','Purpose'];
-  const lines = [header.join(',')].concat(dailyLogs.map(e=>[e.date,e.reg,e.driver,e.startKm,e.closingKm,e.km,e.mode,e.odometerAtRefuel||'',e.litres||'',e.category,e.cost,e.status,'"'+(e.purpose||'').replace(/"/g,'""')+'"'].join(',')));
+  const header = ['Date','Reg','Driver','Start km','Closing km','Km','Mode','Fill-up odo','Litres','Category','Cost','Status','Purpose','Notes'];
+  const lines = [header.join(',')].concat(dailyLogs.map(e=>[e.date,e.reg,e.driver,e.startKm,e.closingKm,e.km,e.mode,e.odometerAtRefuel||'',e.litres||'',e.category,e.cost,e.status,'"'+(e.purpose||'').replace(/"/g,'""')+'"','"'+(e.notes||'').replace(/"/g,'""')+'"'].join(',')));
   const blob = new Blob([lines.join('\n')], {type:'text/csv'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob); a.download = 'fleet_daily_log.csv'; a.click();
@@ -1410,6 +1679,7 @@ function initAppData(){
   populateMaintVehicleSelect();
   populateIncidentVehicleSelect();
   clearDriverForm();
+  clearUserForm();
   renderDriverHistory();
   document.getElementById('d_driver').addEventListener('change', renderDriverHistory);
 }
