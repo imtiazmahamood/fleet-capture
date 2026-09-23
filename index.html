@@ -743,13 +743,50 @@ function toast(msg){
 }
 
 // ---------- Auth ----------
+function looksLikeOfflineError(err){
+  const msg = (err && err.message) || '';
+  return !navigator.onLine || err instanceof TypeError || /load failed|fetch|network/i.test(msg);
+}
+async function enterApp(profile){
+  if (profile.status && profile.status !== 'Active') {
+    try { await sb.auth.signOut(); } catch (e) { /* offline or already signed out -- fine either way */ }
+    document.getElementById('loginError').textContent = 'This account has been disabled. Contact your administrator.';
+    return;
+  }
+  currentUser = { id: profile.id, name: profile.name, username: profile.username, role: profile.role, status: profile.status };
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('mainApp').style.display = 'block';
+  document.getElementById('userBadge').innerHTML =
+    `<span class="muted">Signed in as <b>${currentUser.name}</b> (${currentUser.role})</span><button class="btn btn-ghost btn-sm" onclick="logout()">Log out</button>`;
+  buildTabBar();
+  await loadAllData();
+  initAppData();
+  showTab('daily');
+  flushOutbox();
+}
 async function doLogin(){
   const uname = (document.getElementById('login_username').value||'').trim().toLowerCase();
   const pass = document.getElementById('login_password').value||'';
   document.getElementById('loginError').textContent = '';
   if (!uname || !pass) { document.getElementById('loginError').textContent = 'Enter a username and password.'; return; }
-  const { error } = await sb.auth.signInWithPassword({ email: uname + '@fleetcapture.local', password: pass });
+  let error;
+  try {
+    ({ error } = await sb.auth.signInWithPassword({ email: uname + '@fleetcapture.local', password: pass }));
+  } catch (e) { error = e; }
   if (error) {
+    if (looksLikeOfflineError(error)) {
+      // No connection to verify credentials against Supabase -- fall back to the last profile this
+      // device successfully logged in as (cached after a previous online login). This only works
+      // once per device: the very first login anywhere still needs connectivity.
+      const cached = loadLocal('fc_cached_profile_by_username_' + uname, null);
+      if (!cached) {
+        document.getElementById('loginError').textContent = 'No connection, and no offline copy of this account on this device yet. Connect to the internet once and log in normally first.';
+        return;
+      }
+      toast("No connection - signed in with this device's last saved login. Data will sync once you're back online.");
+      await enterApp(cached);
+      return;
+    }
     console.error('Login error:', error);
     document.getElementById('loginError').textContent = 'Login failed: ' + error.message + ' (status ' + (error.status||'?') + ')';
     return;
@@ -769,6 +806,7 @@ async function afterAuth(){
     if (error) throw error;
     profile = data;
     saveLocal('fc_cached_profile_' + session.user.id, profile);
+    saveLocal('fc_cached_profile_by_username_' + profile.username, profile);
   } catch (e) {
     profile = loadLocal('fc_cached_profile_' + session.user.id, null);
     if (!profile) {
@@ -776,21 +814,7 @@ async function afterAuth(){
       return;
     }
   }
-  if (profile.status && profile.status !== 'Active') {
-    await sb.auth.signOut();
-    document.getElementById('loginError').textContent = 'This account has been disabled. Contact your administrator.';
-    return;
-  }
-  currentUser = { id: profile.id, name: profile.name, username: profile.username, role: profile.role, status: profile.status };
-  document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('mainApp').style.display = 'block';
-  document.getElementById('userBadge').innerHTML =
-    `<span class="muted">Signed in as <b>${currentUser.name}</b> (${currentUser.role})</span><button class="btn btn-ghost btn-sm" onclick="logout()">Log out</button>`;
-  buildTabBar();
-  await loadAllData();
-  initAppData();
-  showTab('daily');
-  flushOutbox();
+  await enterApp(profile);
 }
 function currentTabAllowed(key){
   const t = TABS.find(t=>t[0]===key);
@@ -1760,8 +1784,10 @@ function initAppData(){
 }
 (async function initAuth(){
   updateConnectivityBadge();
-  const { data: { session } } = await sb.auth.getSession();
-  if (session) { await afterAuth(); }
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) { await afterAuth(); }
+  } catch (e) { console.warn('Could not check for an existing session', e); }
 })();
 
 if ('serviceWorker' in navigator) {
