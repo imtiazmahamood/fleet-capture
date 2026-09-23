@@ -686,16 +686,46 @@ async function flushOutbox(){
 
 function getVehicle(reg){ return vehicles.find(v=>v.reg===reg); }
 function getCurrentOdometer(reg){
-  let vals = [];
   const v = getVehicle(reg);
-  if (v && v.openingOdometer) vals.push(Number(v.openingOdometer)||0);
-  if (v && v.currentKm) vals.push(Number(v.currentKm)||0); // present on offline-cached vehicles
-  // Flagged entries are ones an admin has marked as an incorrect reading -- they must not be
-  // allowed to keep inflating the vehicle's current km just because the bad number was higher.
-  dailyLogs.filter(e=>e.reg===reg && e.status!=='flagged').forEach(e=>{ if(e.closingKm) vals.push(Number(e.closingKm)); });
-  maintenance.filter(e=>e.reg===reg).forEach(e=>{ if(e.odometerAtService) vals.push(Number(e.odometerAtService)); });
-  outbox.filter(o=>o.type==='daily_log' && o.payload.reg===reg).forEach(o=>{ if(o.payload.closing_km) vals.push(Number(o.payload.closing_km)); });
-  return vals.length ? Math.max(...vals) : 0;
+  if (v && v.currentKm) return Number(v.currentKm)||0; // offline-cached snapshot; no history loaded to compare against
+
+  // Current km is the reading from whichever source is chronologically most recent -- NOT simply
+  // the highest number ever logged. That's what let a flagged/incorrect entry, or a stale reading,
+  // keep "winning" forever even after an admin corrected it. Every candidate below carries its own
+  // real timestamp so the genuinely latest one always wins, and an admin's manual correction
+  // (Vehicle Master -> Correct km) is compared fairly against log entries the same way.
+  let best = null; // { value, at: epoch ms }
+  const consider = (value, at) => {
+    if (value==null || value==='' || isNaN(value) || at==null) return;
+    if (!best || at >= best.at) best = { value: Number(value), at };
+  };
+  if (v && v.openingOdometer) consider(v.openingOdometer, -Infinity); // baseline, lowest priority
+  if (v && v.odometerOverride!=null && v.odometerOverrideAt) consider(v.odometerOverride, new Date(v.odometerOverrideAt).getTime());
+  // Flagged entries are ones an admin has marked as an incorrect reading -- they must never be
+  // allowed to stand in as the vehicle's current km.
+  dailyLogs.filter(e=>e.reg===reg && e.status!=='flagged').forEach(e=>{
+    if (e.closingKm) consider(e.closingKm, new Date(e.createdAt || e.date).getTime());
+  });
+  maintenance.filter(e=>e.reg===reg).forEach(e=>{
+    if (e.odometerAtService) consider(e.odometerAtService, new Date(e.createdAt || e.date).getTime());
+  });
+  outbox.filter(o=>o.type==='daily_log' && o.payload.reg===reg).forEach(o=>{
+    if (o.payload.closing_km) consider(o.payload.closing_km, o.createdAt ? new Date(o.createdAt).getTime() : Date.now());
+  });
+  return best ? best.value : 0;
+}
+async function correctOdometer(reg){
+  const current = getCurrentOdometer(reg);
+  const input = prompt('Correct the current odometer reading for ' + reg + '.\n\nCurrent value: ' + current.toLocaleString() + ' km\nEnter the correct reading:', current);
+  if (input===null) return;
+  const value = parseFloat(input);
+  if (isNaN(value) || value < 0) { toast('Enter a valid, non-negative number'); return; }
+  if (!confirm('Set ' + reg + "'s current odometer to " + value.toLocaleString() + ' km? This overrides the reading calculated from logged entries until a newer entry is submitted.')) return;
+  const { error } = await sb.from('vehicles').update({ odometer_override: value, odometer_override_at: new Date().toISOString() }).eq('reg', reg);
+  if (error) { toast('Error: ' + error.message); return; }
+  await refreshVehicles();
+  renderVehicleTable();
+  toast('Odometer corrected');
 }
 function getNextServiceDue(reg){
   const rows = maintenance.filter(e=>e.reg===reg && e.nextServiceDueKm).sort((a,b)=>new Date(b.date)-new Date(a.date));
@@ -787,7 +817,9 @@ async function refreshVehicles(){
   vehicles = (data||[]).map(v=>({
     reg:v.reg, fleetNo:v.fleet_no||'', make:v.make||'', model:v.model||'', fuelType:v.fuel_type||'Petrol',
     year:v.year||'', colour:v.colour||'', driver:v.driver||'', station:v.station||'', status:v.status||'Active',
-    openingOdometer:Number(v.opening_odometer)||0, insuranceExpiry:v.insurance_expiry||'', licenceExpiry:v.licence_expiry||'', notes:v.notes||''
+    openingOdometer:Number(v.opening_odometer)||0, insuranceExpiry:v.insurance_expiry||'', licenceExpiry:v.licence_expiry||'', notes:v.notes||'',
+    odometerOverride: v.odometer_override!=null ? Number(v.odometer_override) : null,
+    odometerOverrideAt: v.odometer_override_at || null
   }));
 }
 async function refreshDrivers(){
@@ -810,7 +842,7 @@ async function refreshDailyLogs(){
     id:e.id, date:e.log_date, reg:e.reg, driver:e.driver_name, driverId:e.driver_id,
     startKm:Number(e.start_km), closingKm:Number(e.closing_km), km:Number(e.km), mode:e.mode,
     cost:Number(e.cost)||0, category:e.category||'-', litres:e.litres, odometerAtRefuel:e.odometer_at_refuel,
-    purpose:e.purpose||'', notes:e.notes||'', status:e.status||'pending'
+    purpose:e.purpose||'', notes:e.notes||'', status:e.status||'pending', createdAt:e.created_at||null
   }));
 }
 async function refreshMaintenance(){
@@ -820,7 +852,7 @@ async function refreshMaintenance(){
     id:m.id, date:m.log_date, reg:m.reg, driver:m.driver_name, reportedBy:m.reported_by, category:m.category,
     description:m.description||'', workshop:m.workshop||'', invoiceRef:m.invoice_ref||'', cost:Number(m.cost)||0,
     odometerAtService:m.odometer_at_service, nextServiceDueKm:m.next_service_due_km,
-    authorisedBy:m.authorised_by||'', status:m.status||'Reported'
+    authorisedBy:m.authorised_by||'', status:m.status||'Reported', createdAt:m.created_at||null
   }));
 }
 async function refreshTyres(){
@@ -1101,7 +1133,7 @@ function renderVehicleTable(){
     <tr><td>${v.reg}</td><td>${v.fleetNo||' - '}</td><td>${v.make} ${v.model}</td><td>${v.fuelType}</td>
     <td>${v.driver}</td><td>${v.station}</td><td>${v.status}</td><td>${getCurrentOdometer(v.reg).toLocaleString()} km</td>
     <td>${v.insuranceExpiry||' - '}</td><td>${v.licenceExpiry||' - '}</td>
-    <td class="row-actions"><button class="btn btn-sm btn-blue" onclick="editVehicle('${v.reg}')">Edit</button><button class="btn btn-sm btn-red" onclick="deleteVehicle('${v.reg}')">Delete</button></td></tr>`).join('')
+    <td class="row-actions"><button class="btn btn-sm btn-blue" onclick="editVehicle('${v.reg}')">Edit</button><button class="btn btn-sm btn-ghost" onclick="correctOdometer('${v.reg}')">Correct km</button><button class="btn btn-sm btn-red" onclick="deleteVehicle('${v.reg}')">Delete</button></td></tr>`).join('')
     || '<tr><td colspan=11 class="muted">No vehicles match</td></tr>';
 }
 
