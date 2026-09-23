@@ -690,7 +690,9 @@ function getCurrentOdometer(reg){
   const v = getVehicle(reg);
   if (v && v.openingOdometer) vals.push(Number(v.openingOdometer)||0);
   if (v && v.currentKm) vals.push(Number(v.currentKm)||0); // present on offline-cached vehicles
-  dailyLogs.filter(e=>e.reg===reg).forEach(e=>{ if(e.closingKm) vals.push(Number(e.closingKm)); });
+  // Flagged entries are ones an admin has marked as an incorrect reading -- they must not be
+  // allowed to keep inflating the vehicle's current km just because the bad number was higher.
+  dailyLogs.filter(e=>e.reg===reg && e.status!=='flagged').forEach(e=>{ if(e.closingKm) vals.push(Number(e.closingKm)); });
   maintenance.filter(e=>e.reg===reg).forEach(e=>{ if(e.odometerAtService) vals.push(Number(e.odometerAtService)); });
   outbox.filter(o=>o.type==='daily_log' && o.payload.reg===reg).forEach(o=>{ if(o.payload.closing_km) vals.push(Number(o.payload.closing_km)); });
   return vals.length ? Math.max(...vals) : 0;
