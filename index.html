@@ -703,7 +703,7 @@ function ensureTyreRow(reg){
   if (!tyres[reg]) tyres[reg] = {fl:'',fr:'',rl:'',rr:'',spare:'',lastReplace:'',nextReplace:'',lastInsp:'',nextInsp:'',roadworthy:'',notes:''};
 }
 function driverNames(){ return fmUsers.filter(u=>u.status==='Active').map(u=>u.name); }
-function vehiclesForDriver(name){ return vehicles.filter(v=>v.driver===name); }
+function vehiclesForDriver(name){ return vehicles.filter(v=>v.driver===name && v.status!=='Written Off' && v.status!=='Sold'); }
 function toast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
@@ -1069,8 +1069,24 @@ function cancelVehicleEdit(){
   document.getElementById('m_cancelBtn').style.display='none';
   clearVehicleForm();
 }
+function vehicleHasHistory(reg){
+  // Tyres rows cascade-delete automatically with the vehicle, so they don't block deletion --
+  // only these three matter, since daily_logs/maintenance/incidents keep a vehicle's reg on
+  // record and Postgres refuses to delete a vehicle those rows still point to.
+  return dailyLogs.some(e=>e.reg===reg) || maintenance.some(m=>m.reg===reg) || incidents.some(i=>i.reg===reg);
+}
 async function deleteVehicle(reg){
-  if (!confirm('Delete vehicle ' + reg + '? This does not delete its logged history.')) return;
+  if (vehicleHasHistory(reg)) {
+    const ok = confirm('Vehicle ' + reg + ' has logged daily log, maintenance, or incident history and can\'t be permanently deleted while that history exists (it would break those records).\n\nMark it as "Written Off" instead? It will disappear from driver dropdowns and active lists, but its history and record stay intact.');
+    if (!ok) return;
+    const { error } = await sb.from('vehicles').update({ status: 'Written Off' }).eq('reg', reg);
+    if (error) { toast('Error: ' + error.message); return; }
+    await refreshVehicles();
+    renderVehicleTable(); populateDriverDropdowns(); renderDriverHistory();
+    toast('Vehicle marked as Written Off');
+    return;
+  }
+  if (!confirm('Delete vehicle ' + reg + '? It has no logged history yet, so this permanently removes it.')) return;
   const { error } = await sb.from('vehicles').delete().eq('reg', reg);
   if (error) { toast('Error: ' + error.message); return; }
   await refreshVehicles();
