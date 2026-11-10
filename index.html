@@ -533,7 +533,7 @@
       <div class="grid4" id="fuel_totals" style="margin:12px 0"></div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Fill-up odo</th><th>Litres</th><th>Cost</th><th>Km/L</th><th>Status</th></tr></thead>
+          <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Fill-up odo</th><th>Litres</th><th>Cost</th><th>Km/L</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="fuel_table"></tbody>
           <tfoot id="fuel_tfoot"></tfoot>
         </table>
@@ -587,6 +587,27 @@
       <div class="guide-item"><b>Driver Accountability</b>Record incidents, fines, damage or commendations against a driver and vehicle, with fault and resolution status.</div>
       <div class="guide-item"><b>Dashboard</b>Live totals, expiry/service alerts, spend charts, filterable km and fuel logs, the approval queue for daily log entries, and auto-calculated monthly and per-vehicle cost summaries  -  no manual totalling required.</div>
       <div class="guide-item"><b>User Management</b>Add admin or driver logins, change passwords, and enable/disable accounts without deleting their history. At least one active admin must always remain.</div>
+    </div>
+  </div>
+</div>
+<div id="logEditModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:1000;align-items:center;justify-content:center;padding:16px">
+  <div class="card" style="width:100%;max-width:520px;max-height:90vh;overflow:auto;margin:0">
+    <h2 id="le_title">Edit entry</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="field"><label>Date</label><input type="date" id="le_date"></div>
+      <div class="field"><label>Status</label><select id="le_status"><option value="pending">pending</option><option value="approved">approved</option><option value="flagged">flagged</option></select></div>
+      <div class="field"><label>Start km</label><input type="number" id="le_start"></div>
+      <div class="field"><label>Closing km</label><input type="number" id="le_close"></div>
+      <div class="field"><label>Cost ($)</label><input type="number" step="0.01" id="le_cost"></div>
+    </div>
+    <div id="le_fuelRow" style="display:none;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+      <div class="field"><label>Litres</label><input type="number" step="0.01" id="le_litres"></div>
+      <div class="field"><label>Fill-up odo</label><input type="number" id="le_odo"></div>
+    </div>
+    <div class="field" style="margin-top:12px"><label>Notes</label><input type="text" id="le_notes"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeLogEdit()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveLogEdit()">Save changes</button>
     </div>
   </div>
 </div>
@@ -1620,10 +1641,11 @@ function renderFuelLogTable(){
     <td>${e.litres ? Number(e.litres).toFixed(1) : ' - '}</td>
     <td>${money(e.cost)}</td>
     <td>${kml!==null && isFinite(kml) ? kml.toFixed(1) : ' - '}</td>
-    <td><span class="badge ${e.status}">${e.status}</span></td></tr>`;
-  }).join('') || '<tr><td colspan=8 class="muted">No fill-ups match these filters</td></tr>';
+    <td><span class="badge ${e.status}">${e.status}</span></td>
+    <td class="row-actions"><button class="btn btn-sm btn-blue" onclick="openLogEdit(${e.id})">Edit</button><button class="btn btn-sm btn-red" onclick="deleteLog(${e.id})">Delete</button></td></tr>`;
+  }).join('') || '<tr><td colspan=9 class="muted">No fill-ups match these filters</td></tr>';
   document.getElementById('fuel_tfoot').innerHTML = rows.length
-    ? `<tr><td colspan="4" style="text-align:right"><b>Total</b></td><td><b>${totalLitres.toFixed(1)} L</b></td><td><b>${money(totalCost)}</b></td><td colspan="2"></td></tr>`
+    ? `<tr><td colspan="4" style="text-align:right"><b>Total</b></td><td><b>${totalLitres.toFixed(1)} L</b></td><td><b>${money(totalCost)}</b></td><td colspan="3"></td></tr>`
     : '';
 }
 function renderDashStats(){
@@ -1709,9 +1731,68 @@ function renderApprovalsTable(){
       <td class="row-actions">
         ${e.status!=='approved' ? `<button class="btn btn-sm btn-green" onclick="setLogStatus(${e.id},'approved')">Approve</button>`:''}
         ${e.status!=='flagged' ? `<button class="btn btn-sm btn-red" onclick="setLogStatus(${e.id},'flagged')">Flag</button>`:''}
+        <button class="btn btn-sm btn-blue" onclick="openLogEdit(${e.id})">Edit</button>
+        <button class="btn btn-sm btn-red" onclick="deleteLog(${e.id})">Delete</button>
       </td>
     </tr>`;
   }).join('') || '<tr><td colspan=13 class="muted">No entries match this filter</td></tr>';
+}
+// ---------- Admin: edit / delete a daily log entry ----------
+let editingLogId = null;
+function openLogEdit(id){
+  if (!currentUser || currentUser.role !== 'admin') { toast('Admins only'); return; }
+  const e = dailyLogs.find(x=>x.id===id); if (!e) return;
+  editingLogId = id;
+  document.getElementById('le_title').textContent = 'Edit entry - ' + e.reg + ' (' + e.driver + ')';
+  document.getElementById('le_date').value = e.date || '';
+  document.getElementById('le_start').value = e.startKm;
+  document.getElementById('le_close').value = e.closingKm;
+  document.getElementById('le_odo').value = e.odometerAtRefuel || '';
+  document.getElementById('le_litres').value = e.litres || '';
+  document.getElementById('le_cost').value = e.cost || 0;
+  document.getElementById('le_notes').value = e.notes || '';
+  document.getElementById('le_status').value = e.status;
+  document.getElementById('le_fuelRow').style.display = e.mode==='fuel' ? 'grid' : 'none';
+  document.getElementById('logEditModal').style.display = 'flex';
+}
+function closeLogEdit(){
+  editingLogId = null;
+  document.getElementById('logEditModal').style.display = 'none';
+}
+async function saveLogEdit(){
+  const e = dailyLogs.find(x=>x.id===editingLogId); if (!e) return;
+  const start = parseFloat(document.getElementById('le_start').value);
+  const closing = parseFloat(document.getElementById('le_close').value);
+  const cost = parseFloat(document.getElementById('le_cost').value) || 0;
+  const litres = parseFloat(document.getElementById('le_litres').value) || null;
+  const odo = parseFloat(document.getElementById('le_odo').value) || null;
+  const date = document.getElementById('le_date').value;
+  if (!date || isNaN(start) || isNaN(closing)) { toast('Date, start km and closing km are required'); return; }
+  if (closing < start) { toast('Closing km is lower than start km'); return; }
+  if (e.mode==='fuel' && litres && cost/litres > 100 && !confirm('That works out to $' + (cost/litres).toFixed(2) + ' per litre, which looks too high. Save anyway?')) return;
+  const payload = {
+    log_date: date, start_km: start, closing_km: closing, km: closing - start, cost,
+    litres: e.mode==='fuel' ? litres : e.litres,
+    odometer_at_refuel: e.mode==='fuel' ? odo : e.odometerAtRefuel,
+    notes: document.getElementById('le_notes').value,
+    status: document.getElementById('le_status').value
+  };
+  const { error } = await sb.from('daily_logs').update(payload).eq('id', editingLogId);
+  if (error) { toast('Error: ' + error.message); return; }
+  closeLogEdit();
+  await refreshDailyLogs();
+  renderDashboard(); renderDriverHistory();
+  toast('Entry updated');
+}
+async function deleteLog(id){
+  if (!currentUser || currentUser.role !== 'admin') { toast('Admins only'); return; }
+  const e = dailyLogs.find(x=>x.id===id); if (!e) return;
+  if (!confirm('Delete this entry?\n\n' + e.date + ' - ' + e.reg + ' - ' + e.driver + ' - ' + money(e.cost) + '\n\nThis cannot be undone.')) return;
+  const { error } = await sb.from('daily_logs').delete().eq('id', id);
+  if (error) { toast('Error: ' + error.message); return; }
+  await refreshDailyLogs();
+  renderDashboard(); renderDriverHistory();
+  toast('Entry deleted');
 }
 async function setLogStatus(id, status){
   const { error } = await sb.from('daily_logs').update({ status }).eq('id', id);
