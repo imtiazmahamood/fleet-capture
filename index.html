@@ -482,12 +482,32 @@
   <div id="view-dashboard" style="display:none">
     <div class="grid4" id="dashStats"></div>
 
-    <div class="card" style="margin-top:14px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px" id="dashTabs">
+      <div class="chip active" data-dtab="overview" onclick="showDashTab('overview')">Overview</div>
+      <div class="chip" data-dtab="km" onclick="showDashTab('km')">Km logged</div>
+      <div class="chip" data-dtab="fuel" onclick="showDashTab('fuel')">Fuel</div>
+      <div class="chip" data-dtab="approvals" onclick="showDashTab('approvals')">Approvals &amp; all entries</div>
+    </div>
+
+    <div class="card" id="dashFilterBar" style="display:none">
+      <div class="card-head">
+        <h2>Filters</h2>
+        <button class="btn btn-ghost btn-sm" onclick="clearDashFilters()">Clear filters</button>
+      </div>
+      <div class="grid4">
+        <div class="field"><label>Vehicle</label><select id="sf_vehicle" onchange="renderFilteredViews()"><option value="">All vehicles</option></select></div>
+        <div class="field"><label>Driver</label><select id="sf_driver" onchange="renderFilteredViews()"><option value="">All drivers</option></select></div>
+        <div class="field"><label>From date</label><input type="date" id="sf_from" onchange="renderFilteredViews()"></div>
+        <div class="field"><label>To date</label><input type="date" id="sf_to" onchange="renderFilteredViews()"></div>
+      </div>
+    </div>
+
+    <div class="card" data-tab="overview" style="margin-top:14px">
       <h2>Alerts</h2>
       <div id="dashAlerts"></div>
     </div>
 
-    <div class="two-col">
+    <div class="two-col" data-tab="overview">
       <div class="card">
         <h3>Spend by category</h3>
         <div class="chart-wrap"><canvas id="catChart"></canvas></div>
@@ -498,16 +518,9 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="km">
       <div class="card-head">
         <h2>Km logged  -  consolidated view</h2>
-        <button class="btn btn-ghost btn-sm" onclick="clearKmFilters()">Clear filters</button>
-      </div>
-      <div class="grid4">
-        <div class="field"><label>Vehicle</label><select id="km_vehicle" onchange="renderKmLogTable()"><option value="">All vehicles</option></select></div>
-        <div class="field"><label>Driver</label><select id="km_driver" onchange="renderKmLogTable()"><option value="">All drivers</option></select></div>
-        <div class="field"><label>From date</label><input type="date" id="km_from" onchange="renderKmLogTable()"></div>
-        <div class="field"><label>To date</label><input type="date" id="km_to" onchange="renderKmLogTable()"></div>
       </div>
       <div class="grid4" id="km_totals" style="margin:12px 0"></div>
       <div class="table-scroll">
@@ -519,16 +532,9 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="fuel">
       <div class="card-head">
         <h2>Fuel log  -  consolidated view</h2>
-        <button class="btn btn-ghost btn-sm" onclick="clearFuelFilters()">Clear filters</button>
-      </div>
-      <div class="grid4">
-        <div class="field"><label>Vehicle</label><select id="fuel_vehicle" onchange="renderFuelLogTable()"><option value="">All vehicles</option></select></div>
-        <div class="field"><label>Driver</label><select id="fuel_driver" onchange="renderFuelLogTable()"><option value="">All drivers</option></select></div>
-        <div class="field"><label>From date</label><input type="date" id="fuel_from" onchange="renderFuelLogTable()"></div>
-        <div class="field"><label>To date</label><input type="date" id="fuel_to" onchange="renderFuelLogTable()"></div>
       </div>
       <div class="grid4" id="fuel_totals" style="margin:12px 0"></div>
       <div class="table-scroll">
@@ -540,7 +546,7 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="approvals">
       <div class="card-head">
         <h2>Pending approvals  -  daily log</h2>
         <div style="display:flex; gap:8px;">
@@ -561,14 +567,14 @@
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="overview">
       <h2>Monthly cost summary (auto)</h2>
       <div class="table-scroll">
         <table id="monthlyTable"></table>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" data-tab="overview">
       <h2>Vehicle expense summary  -  by vehicle by month (auto)</h2>
       <div class="table-scroll">
         <table id="vehExpTable"></table>
@@ -1560,26 +1566,35 @@ let catChartInst=null, vehChartInst=null;
 function renderDashboard(){
   populateDashFilters();
   renderDashStats(); renderDashAlerts(); renderDashCharts(); renderKmLogTable(); renderFuelLogTable(); renderApprovalsTable(); renderMonthlyTable(); renderVehExpTable();
+  showDashTab(dashTab);
+}
+let dashTab = 'overview';
+function showDashTab(tab){
+  dashTab = tab;
+  document.querySelectorAll('[data-dtab]').forEach(c=>c.classList.toggle('active', c.dataset.dtab===tab));
+  document.querySelectorAll('#view-dashboard [data-tab]').forEach(el=>{ el.style.display = el.dataset.tab===tab ? '' : 'none'; });
+  document.getElementById('dashFilterBar').style.display = tab==='overview' ? 'none' : '';
+  if (tab==='overview') { try { renderDashCharts(); } catch(e){} }
+}
+function renderFilteredViews(){ renderKmLogTable(); renderFuelLogTable(); renderApprovalsTable(); }
+function clearDashFilters(){
+  ['sf_vehicle','sf_driver','sf_from','sf_to'].forEach(id=>document.getElementById(id).value='');
+  renderFilteredViews();
 }
 function populateDashFilters(){
   const regs = vehicles.map(v=>v.reg).sort();
   const names = Array.from(new Set(dailyLogs.map(e=>e.driver))).sort();
-  ['km_vehicle','fuel_vehicle'].forEach(id=>{
+  [['sf_vehicle','All vehicles',regs],['sf_driver','All drivers',names]].forEach(([id,label,list])=>{
     const sel = document.getElementById(id); const cur = sel.value;
-    sel.innerHTML = '<option value="">All vehicles</option>' + regs.map(r=>`<option value="${r}">${r}</option>`).join('');
-    if (regs.includes(cur)) sel.value = cur;
-  });
-  ['km_driver','fuel_driver'].forEach(id=>{
-    const sel = document.getElementById(id); const cur = sel.value;
-    sel.innerHTML = '<option value="">All drivers</option>' + names.map(n=>`<option value="${n}">${n}</option>`).join('');
-    if (names.includes(cur)) sel.value = cur;
+    sel.innerHTML = `<option value="">${label}</option>` + list.map(r=>`<option value="${r}">${r}</option>`).join('');
+    if (list.includes(cur)) sel.value = cur;
   });
 }
-function filterLogsByDashCriteria(prefix){
-  const reg = document.getElementById(prefix+'_vehicle').value;
-  const driver = document.getElementById(prefix+'_driver').value;
-  const from = document.getElementById(prefix+'_from').value;
-  const to = document.getElementById(prefix+'_to').value;
+function filterLogsByDashCriteria(){
+  const reg = document.getElementById('sf_vehicle').value;
+  const driver = document.getElementById('sf_driver').value;
+  const from = document.getElementById('sf_from').value;
+  const to = document.getElementById('sf_to').value;
   return dailyLogs.filter(e=>{
     if (reg && e.reg!==reg) return false;
     if (driver && e.driver!==driver) return false;
@@ -1587,14 +1602,6 @@ function filterLogsByDashCriteria(prefix){
     if (to && e.date > to) return false;
     return true;
   }).sort((a,b)=>b.date.localeCompare(a.date) || b.id-a.id);
-}
-function clearKmFilters(){
-  ['km_vehicle','km_driver','km_from','km_to'].forEach(id=>document.getElementById(id).value='');
-  renderKmLogTable();
-}
-function clearFuelFilters(){
-  ['fuel_vehicle','fuel_driver','fuel_from','fuel_to'].forEach(id=>document.getElementById(id).value='');
-  renderFuelLogTable();
 }
 function renderKmLogTable(){
   const rows = filterLogsByDashCriteria('km').filter(e=>e.status!=='flagged');
@@ -1714,7 +1721,7 @@ function renderDashCharts(){
 function renderApprovalsTable(){
   const filter = document.getElementById('a_filter').value;
   // Pending first, then newest date first (ties: newest submission first)
-  let rows = dailyLogs.slice().sort((a,b)=>
+  let rows = filterLogsByDashCriteria().sort((a,b)=>
     ((b.status==='pending') - (a.status==='pending')) ||
     String(b.date).localeCompare(String(a.date)) ||
     b.id - a.id);
