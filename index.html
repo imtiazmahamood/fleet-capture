@@ -197,7 +197,7 @@
           <div class="field">
             <label>Category</label>
             <select id="d_repairCat">
-              <option>Tyres</option><option>Brakes</option><option>Electrical</option>
+              <option>Vehicle Service</option><option>Tyres</option><option>Brakes</option><option>Electrical</option>
               <option>Body Work</option><option>Accident Repair</option><option>Suspension</option><option>Other</option>
             </select>
           </div>
@@ -1713,7 +1713,11 @@ function renderDashCharts(){
 }
 function renderApprovalsTable(){
   const filter = document.getElementById('a_filter').value;
-  let rows = dailyLogs.slice().sort((a,b)=>b.id-a.id);
+  // Pending first, then newest date first (ties: newest submission first)
+  let rows = dailyLogs.slice().sort((a,b)=>
+    ((b.status==='pending') - (a.status==='pending')) ||
+    String(b.date).localeCompare(String(a.date)) ||
+    b.id - a.id);
   if (filter==='pending') rows = rows.filter(e=>e.status==='pending');
   if (filter==='fuel') rows = rows.filter(e=>e.mode==='fuel');
   if (filter==='repair') rows = rows.filter(e=>e.mode==='repair');
