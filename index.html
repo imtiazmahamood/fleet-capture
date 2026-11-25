@@ -348,7 +348,7 @@
       <div class="grid4">
         <div class="field"><label>Date *</label><input type="date" id="mt_date"></div>
         <div class="field"><label>Vehicle *</label><select id="mt_reg" onchange="onMaintVehicleChange()"></select></div>
-        <div class="field"><label>Driver / Custodian</label><input type="text" id="mt_driver"></div>
+        <div class="field"><label>Driver / Custodian</label><select id="mt_driver"></select></div>
         <div class="field"><label>Category</label>
           <select id="mt_category">
             <option>Service</option><option>Suspension</option><option>Tyres</option><option>Brakes</option>
@@ -380,6 +380,8 @@
     <div class="card">
       <div class="card-head"><h2>All maintenance records</h2></div>
       <div class="filter-bar">
+        <select id="mt_filterVeh" onchange="renderMaintTable()"><option value="all">All vehicles</option></select>
+        <select id="mt_filterDriver" onchange="renderMaintTable()"><option value="all">All drivers</option></select>
         <select id="mt_filterStatus" onchange="renderMaintTable()">
           <option value="all">All statuses</option>
           <option>Reported</option><option>Pending</option><option>In Progress</option><option>Completed</option>
@@ -393,8 +395,9 @@
       </div>
       <div class="table-scroll">
         <table>
-          <thead><tr><th>Date</th><th>Reg</th><th>Category</th><th>Description</th><th>Workshop</th><th>Cost</th><th>Odo at Service</th><th>Next Due</th><th>Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Category</th><th>Description</th><th>Workshop</th><th>Cost</th><th>Odo at Service</th><th>Next Due</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="mt_table"></tbody>
+          <tfoot id="mt_tfoot"></tfoot>
         </table>
       </div>
     </div>
@@ -486,6 +489,7 @@
       <div class="chip active" data-dtab="overview" onclick="showDashTab('overview')">Overview</div>
       <div class="chip" data-dtab="km" onclick="showDashTab('km')">Km logged</div>
       <div class="chip" data-dtab="fuel" onclick="showDashTab('fuel')">Fuel</div>
+      <div class="chip" data-dtab="summary" onclick="showDashTab('summary')">By vehicle / driver</div>
       <div class="chip" data-dtab="approvals" onclick="showDashTab('approvals')">Approvals &amp; all entries</div>
     </div>
 
@@ -542,6 +546,41 @@
           <thead><tr><th>Date</th><th>Reg</th><th>Driver</th><th>Fill-up odo</th><th>Litres</th><th>Cost</th><th>Km/L</th><th>Status</th><th>Actions</th></tr></thead>
           <tbody id="fuel_table"></tbody>
           <tfoot id="fuel_tfoot"></tfoot>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" data-tab="summary">
+      <div class="card-head">
+        <h2>Entries &amp; costs  -  consolidated</h2>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="muted">View by</span>
+          <select id="sum_by" onchange="sumSel=null; renderSummary()" style="width:auto">
+            <option value="vehicle">Vehicle</option><option value="driver">Driver</option>
+          </select>
+          <button class="btn btn-ghost btn-sm" onclick="exportSummaryCSV()">Export CSV</button>
+        </div>
+      </div>
+      <p class="muted" style="margin:6px 0 0">Combines daily-log expenses (fuel etc.) and maintenance records. Uses the filters above. Click a row to see its entries.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th id="sum_keyHead">Vehicle</th><th>Entries</th><th>Fuel</th><th>Other expenses</th><th>Maintenance</th><th>Total cost</th><th>Last entry</th></tr></thead>
+          <tbody id="sum_table"></tbody>
+          <tfoot id="sum_tfoot"></tfoot>
+        </table>
+      </div>
+    </div>
+
+    <div class="card" data-tab="summary" id="sum_detailCard" style="display:none">
+      <div class="card-head">
+        <h2 id="sum_detailTitle"></h2>
+        <button class="btn btn-ghost btn-sm" onclick="sumSel=null; renderSummary()">Close</button>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Date</th><th>Type</th><th>Reg</th><th>Driver</th><th>Detail</th><th>Cost</th></tr></thead>
+          <tbody id="sum_detailTable"></tbody>
+          <tfoot id="sum_detailTfoot"></tfoot>
         </table>
       </div>
     </div>
@@ -1365,18 +1404,37 @@ function renderUserTable(){
 }
 
 // ---------- Maintenance ----------
+function setMaintDriver(name){
+  // Select value; if the saved name is no longer an active driver (or free text from an old record), keep it as an option.
+  const sel = document.getElementById('mt_driver');
+  const names = driverNames();
+  if (name && !names.includes(name)) names.push(name);
+  sel.innerHTML = '<option value="">- None -</option>' + names.sort().map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  sel.value = name || '';
+}
 function populateMaintVehicleSelect(){
   const sel = document.getElementById('mt_reg');
   sel.innerHTML = vehicles.map(v=>`<option value="${v.reg}">${v.reg} - ${v.make} ${v.model}</option>`).join('');
+  setMaintDriver('');
   onMaintVehicleChange();
 }
 function onMaintVehicleChange(){
   const v = getVehicle(document.getElementById('mt_reg').value);
-  if (v && !editingMaintId) document.getElementById('mt_driver').value = v.driver;
+  if (v && !editingMaintId) setMaintDriver(v.driver);
+}
+function populateMaintFilters(){
+  const vSel = document.getElementById('mt_filterVeh'), dSel = document.getElementById('mt_filterDriver');
+  const cv = vSel.value, cd = dSel.value;
+  const regs = Array.from(new Set(vehicles.map(v=>v.reg).concat(maintenance.map(m=>m.reg)))).sort();
+  const names = Array.from(new Set(driverNames().concat(maintenance.map(m=>m.driver).filter(Boolean)))).sort();
+  vSel.innerHTML = '<option value="all">All vehicles</option>' + regs.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  dSel.innerHTML = '<option value="all">All drivers</option>' + names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
+  if (regs.includes(cv)) vSel.value = cv;
+  if (names.includes(cd)) dSel.value = cd;
 }
 function clearMaintForm(){
   document.getElementById('mt_date').value = fmtDate(TODAY);
-  document.getElementById('mt_driver').value=''; document.getElementById('mt_desc').value='';
+  document.getElementById('mt_desc').value='';
   document.getElementById('mt_workshop').value=''; document.getElementById('mt_cost').value='';
   document.getElementById('mt_invoice').value=''; document.getElementById('mt_authBy').value='';
   document.getElementById('mt_odo').value=''; document.getElementById('mt_nextDue').value='';
@@ -1412,7 +1470,7 @@ function editMaintenance(id){
   document.getElementById('mt_formTitle').textContent = 'Edit maintenance record';
   document.getElementById('mt_date').value = m.date;
   document.getElementById('mt_reg').value = m.reg;
-  document.getElementById('mt_driver').value = m.driver||'';
+  setMaintDriver(m.driver||'');
   document.getElementById('mt_category').value = m.category;
   document.getElementById('mt_desc').value = m.description||'';
   document.getElementById('mt_workshop').value = m.workshop||'';
@@ -1441,16 +1499,24 @@ async function deleteMaintenance(id){
 function renderMaintTable(){
   const fs = document.getElementById('mt_filterStatus').value;
   const fc = document.getElementById('mt_filterCat').value;
+  populateMaintFilters();
+  const fv = document.getElementById('mt_filterVeh').value;
+  const fd = document.getElementById('mt_filterDriver').value;
   let rows = maintenance.slice().sort((a,b)=>new Date(b.date)-new Date(a.date) || b.id-a.id);
   if (fs!=='all') rows = rows.filter(m=>m.status===fs);
   if (fc!=='all') rows = rows.filter(m=>m.category===fc);
+  if (fv!=='all') rows = rows.filter(m=>m.reg===fv);
+  if (fd!=='all') rows = rows.filter(m=>m.driver===fd);
+  const total = rows.reduce((s,m)=>s+(m.cost||0),0);
+  document.getElementById('mt_tfoot').innerHTML = rows.length
+    ? `<tr><td colspan="6" style="text-align:right"><b>${rows.length} record${rows.length===1?'':'s'} - total</b></td><td><b>${money(total)}</b></td><td colspan="4"></td></tr>` : '';
   document.getElementById('mt_table').innerHTML = rows.map(m=>`
-    <tr><td>${m.date}</td><td>${m.reg}</td><td>${m.category}</td><td>${m.description||' - '}</td><td>${m.workshop||' - '}</td>
+    <tr><td>${m.date}</td><td>${m.reg}</td><td>${esc(m.driver)||' - '}</td><td>${m.category}</td><td>${m.description||' - '}</td><td>${m.workshop||' - '}</td>
     <td>${m.cost?money(m.cost):' - '}</td><td>${m.odometerAtService?Number(m.odometerAtService).toLocaleString()+' km':' - '}</td>
     <td>${m.nextServiceDueKm?Number(m.nextServiceDueKm).toLocaleString()+' km':' - '}</td>
     <td><span class="badge ${m.status.toLowerCase().replace(' ','')}">${m.status}</span></td>
     <td class="row-actions"><button class="btn btn-sm btn-blue" onclick="editMaintenance(${m.id})">Edit</button><button class="btn btn-sm btn-red" onclick="deleteMaintenance(${m.id})">Delete</button></td></tr>`).join('')
-    || '<tr><td colspan=10 class="muted">No records match this filter</td></tr>';
+    || '<tr><td colspan=11 class="muted">No records match this filter</td></tr>';
 }
 
 // ---------- Tyres & Inspection ----------
@@ -1565,7 +1631,7 @@ function renderIncidentTable(){
 let catChartInst=null, vehChartInst=null;
 function renderDashboard(){
   populateDashFilters();
-  renderDashStats(); renderDashAlerts(); renderDashCharts(); renderKmLogTable(); renderFuelLogTable(); renderApprovalsTable(); renderMonthlyTable(); renderVehExpTable();
+  renderDashStats(); renderDashAlerts(); renderDashCharts(); renderKmLogTable(); renderFuelLogTable(); renderApprovalsTable(); renderSummary(); renderMonthlyTable(); renderVehExpTable();
   showDashTab(dashTab);
 }
 let dashTab = 'overview';
@@ -1575,15 +1641,80 @@ function showDashTab(tab){
   document.querySelectorAll('#view-dashboard [data-tab]').forEach(el=>{ el.style.display = el.dataset.tab===tab ? '' : 'none'; });
   document.getElementById('dashFilterBar').style.display = tab==='overview' ? 'none' : '';
   if (tab==='overview') { try { renderDashCharts(); } catch(e){} }
+  if (tab==='summary') renderSummary();
 }
-function renderFilteredViews(){ renderKmLogTable(); renderFuelLogTable(); renderApprovalsTable(); }
+function renderFilteredViews(){ renderKmLogTable(); renderFuelLogTable(); renderApprovalsTable(); renderSummary(); }
+
+// ----- Consolidated entries & costs by vehicle / driver -----
+let sumSel = null;
+function sumEntries(){
+  // Unified list of every cost-bearing entry, respecting the dashboard filters.
+  const reg = document.getElementById('sf_vehicle').value, driver = document.getElementById('sf_driver').value;
+  const from = document.getElementById('sf_from').value, to = document.getElementById('sf_to').value;
+  const out = [];
+  dailyLogs.filter(e=>e.cost>0).forEach(e=>out.push({
+    date:e.date, type: e.mode==='fuel' ? 'Fuel' : 'Expense', reg:e.reg, driver:e.driver||'',
+    detail: e.mode==='fuel' ? `${e.litres?Number(e.litres).toFixed(1)+' L':'Fill-up'}${e.notes?' - '+e.notes:''}` : `${e.category}${e.notes?' - '+e.notes:''}`,
+    cost:e.cost
+  }));
+  maintenance.forEach(m=>out.push({
+    date:m.date, type:'Maintenance', reg:m.reg, driver:m.driver||'',
+    detail: `${m.category}${m.description?' - '+m.description:''} (${m.status})`, cost:m.cost||0
+  }));
+  return out.filter(x=>(!reg||x.reg===reg) && (!driver||x.driver===driver) && (!from||x.date>=from) && (!to||x.date<=to));
+}
+function renderSummary(){
+  if (!document.getElementById('sum_table')) return;
+  const by = document.getElementById('sum_by').value;
+  const keyOf = x => (by==='vehicle' ? x.reg : x.driver) || '(Unassigned)';
+  document.getElementById('sum_keyHead').textContent = by==='vehicle' ? 'Vehicle' : 'Driver';
+  const groups = {};
+  sumEntries().forEach(x=>{
+    const k = keyOf(x);
+    const g = groups[k] || (groups[k] = {key:k, n:0, fuel:0, exp:0, maint:0, total:0, last:''});
+    g.n++; g.total += x.cost;
+    if (x.type==='Fuel') g.fuel += x.cost; else if (x.type==='Expense') g.exp += x.cost; else g.maint += x.cost;
+    if (x.date > g.last) g.last = x.date;
+  });
+  const rows = Object.values(groups).sort((a,b)=>b.total-a.total);
+  const t = rows.reduce((s,g)=>({n:s.n+g.n,fuel:s.fuel+g.fuel,exp:s.exp+g.exp,maint:s.maint+g.maint,total:s.total+g.total}),{n:0,fuel:0,exp:0,maint:0,total:0});
+  const m = v => v ? money(v) : ' - ';
+  document.getElementById('sum_table').innerHTML = rows.map(g=>`
+    <tr style="cursor:pointer${sumSel===g.key?';background:rgba(0,0,0,.05)':''}" onclick="sumSel=this.dataset.k; renderSummary()" data-k="${esc(g.key)}">
+    <td><b>${esc(g.key)}</b></td><td>${g.n}</td><td>${m(g.fuel)}</td><td>${m(g.exp)}</td><td>${m(g.maint)}</td><td><b>${money(g.total)}</b></td><td>${g.last||' - '}</td></tr>`).join('')
+    || '<tr><td colspan=7 class="muted">No entries match these filters</td></tr>';
+  document.getElementById('sum_tfoot').innerHTML = rows.length
+    ? `<tr><td><b>Total</b></td><td><b>${t.n}</b></td><td><b>${m(t.fuel)}</b></td><td><b>${m(t.exp)}</b></td><td><b>${m(t.maint)}</b></td><td><b>${money(t.total)}</b></td><td></td></tr>` : '';
+  // Drill-down
+  const card = document.getElementById('sum_detailCard');
+  if (sumSel && groups[sumSel]) {
+    const det = sumEntries().filter(x=>keyOf(x)===sumSel).sort((a,b)=>b.date.localeCompare(a.date));
+    card.style.display = (dashTab==='summary') ? '' : 'none';
+    document.getElementById('sum_detailTitle').textContent = `${sumSel}  -  all entries`;
+    document.getElementById('sum_detailTable').innerHTML = det.map(x=>`
+      <tr><td>${x.date}</td><td>${x.type}</td><td>${esc(x.reg)}</td><td>${esc(x.driver)||' - '}</td><td>${esc(x.detail)}</td><td>${money(x.cost)}</td></tr>`).join('');
+    document.getElementById('sum_detailTfoot').innerHTML = `<tr><td colspan="5" style="text-align:right"><b>Total</b></td><td><b>${money(det.reduce((s,x)=>s+x.cost,0))}</b></td></tr>`;
+  } else {
+    sumSel = null; card.style.display = 'none';
+  }
+}
+function exportSummaryCSV(){
+  const by = document.getElementById('sum_by').value;
+  const q = v => '"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const lines = [['Date','Type','Reg','Driver','Detail','Cost'].join(',')]
+    .concat(sumEntries().sort((a,b)=>(by==='vehicle'?a.reg.localeCompare(b.reg):(a.driver||'').localeCompare(b.driver||'')) || b.date.localeCompare(a.date))
+    .map(x=>[x.date,x.type,x.reg,q(x.driver),q(x.detail),x.cost].join(',')));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));
+  a.download = `fleet_costs_by_${by}.csv`; a.click();
+}
 function clearDashFilters(){
   ['sf_vehicle','sf_driver','sf_from','sf_to'].forEach(id=>document.getElementById(id).value='');
   renderFilteredViews();
 }
 function populateDashFilters(){
   const regs = vehicles.map(v=>v.reg).sort();
-  const names = Array.from(new Set(dailyLogs.map(e=>e.driver))).sort();
+  const names = Array.from(new Set(dailyLogs.map(e=>e.driver).concat(maintenance.map(m=>m.driver)).filter(Boolean))).sort();
   [['sf_vehicle','All vehicles',regs],['sf_driver','All drivers',names]].forEach(([id,label,list])=>{
     const sel = document.getElementById(id); const cur = sel.value;
     sel.innerHTML = `<option value="">${label}</option>` + list.map(r=>`<option value="${r}">${r}</option>`).join('');
