@@ -357,7 +357,7 @@
           </select>
         </div>
       </div>
-      <div class="field"><label>Description of Work</label><input type="text" id="mt_desc"></div>
+      <div class="field"><label>Description of Work *</label><input type="text" id="mt_desc"></div>
       <div class="grid4">
         <div class="field"><label>Workshop / Supplier</label><input type="text" id="mt_workshop"></div>
         <div class="field"><label>Cost (USD)</label><input type="number" id="mt_cost"></div>
@@ -1445,6 +1445,7 @@ async function saveMaintenance(){
   const reg = document.getElementById('mt_reg').value;
   const date = document.getElementById('mt_date').value;
   if (!reg || !date) { toast('Date and vehicle are required'); return; }
+  if (!document.getElementById('mt_desc').value.trim()) { toast('Description of work is required'); document.getElementById('mt_desc').focus(); return; }
   const payload = {
     reg, driver_name: document.getElementById('mt_driver').value, log_date: date,
     category: document.getElementById('mt_category').value, description: document.getElementById('mt_desc').value,
