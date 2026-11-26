@@ -1404,6 +1404,11 @@ function renderUserTable(){
 }
 
 // ---------- Maintenance ----------
+function vehLabel(reg, withMake){
+  const v = getVehicle(reg);
+  if (!v) return reg;
+  return reg + (withMake ? ` - ${v.make} ${v.model}` : '') + (v.driver ? ` (${v.driver})` : '');
+}
 function setMaintDriver(name){
   // Select value; if the saved name is no longer an active driver (or free text from an old record), keep it as an option.
   const sel = document.getElementById('mt_driver');
@@ -1414,7 +1419,7 @@ function setMaintDriver(name){
 }
 function populateMaintVehicleSelect(){
   const sel = document.getElementById('mt_reg');
-  sel.innerHTML = vehicles.map(v=>`<option value="${v.reg}">${v.reg} - ${v.make} ${v.model}</option>`).join('');
+  sel.innerHTML = vehicles.map(v=>`<option value="${v.reg}">${esc(vehLabel(v.reg, true))}</option>`).join('');
   setMaintDriver('');
   onMaintVehicleChange();
 }
@@ -1427,7 +1432,7 @@ function populateMaintFilters(){
   const cv = vSel.value, cd = dSel.value;
   const regs = Array.from(new Set(vehicles.map(v=>v.reg).concat(maintenance.map(m=>m.reg)))).sort();
   const names = Array.from(new Set(driverNames().concat(maintenance.map(m=>m.driver).filter(Boolean)))).sort();
-  vSel.innerHTML = '<option value="all">All vehicles</option>' + regs.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join('');
+  vSel.innerHTML = '<option value="all">All vehicles</option>' + regs.map(r=>`<option value="${esc(r)}">${esc(vehLabel(r))}</option>`).join('');
   dSel.innerHTML = '<option value="all">All drivers</option>' + names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
   if (regs.includes(cv)) vSel.value = cv;
   if (names.includes(cd)) dSel.value = cd;
@@ -1718,7 +1723,7 @@ function populateDashFilters(){
   const names = Array.from(new Set(dailyLogs.map(e=>e.driver).concat(maintenance.map(m=>m.driver)).filter(Boolean))).sort();
   [['sf_vehicle','All vehicles',regs],['sf_driver','All drivers',names]].forEach(([id,label,list])=>{
     const sel = document.getElementById(id); const cur = sel.value;
-    sel.innerHTML = `<option value="">${label}</option>` + list.map(r=>`<option value="${r}">${r}</option>`).join('');
+    sel.innerHTML = `<option value="">${label}</option>` + list.map(r=>`<option value="${esc(r)}">${id==='sf_vehicle' ? esc(vehLabel(r)) : esc(r)}</option>`).join('');
     if (list.includes(cur)) sel.value = cur;
   });
 }
