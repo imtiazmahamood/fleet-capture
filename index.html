@@ -1653,7 +1653,7 @@ function sumEntries(){
   const reg = document.getElementById('sf_vehicle').value, driver = document.getElementById('sf_driver').value;
   const from = document.getElementById('sf_from').value, to = document.getElementById('sf_to').value;
   const out = [];
-  dailyLogs.filter(e=>e.cost>0).forEach(e=>out.push({
+  dailyLogs.filter(e=>e.cost>0 && e.mode!=='repair').forEach(e=>out.push({
     date:e.date, type: e.mode==='fuel' ? 'Fuel' : 'Expense', reg:e.reg, driver:e.driver||'',
     detail: e.mode==='fuel' ? `${e.litres?Number(e.litres).toFixed(1)+' L':'Fill-up'}${e.notes?' - '+e.notes:''}` : `${e.category}${e.notes?' - '+e.notes:''}`,
     cost:e.cost
@@ -1828,11 +1828,13 @@ function renderDashAlerts(){
     : '<div class="muted">No alerts - all vehicles current.</div>';
 }
 function renderDashCharts(){
+  // Repair reports from the daily log are also saved as maintenance records (which carry the cost),
+  // so repair-mode daily logs are skipped here to avoid counting them twice.
   const byCat = {};
-  dailyLogs.filter(e=>e.cost>0).forEach(e=>{ byCat[e.category]=(byCat[e.category]||0)+e.cost; });
+  dailyLogs.filter(e=>e.cost>0 && e.mode!=='repair').forEach(e=>{ byCat[e.category]=(byCat[e.category]||0)+e.cost; });
   maintenance.forEach(m=>{ if(m.cost>0) byCat[m.category]=(byCat[m.category]||0)+m.cost; });
   const byVeh = {};
-  dailyLogs.filter(e=>e.cost>0).forEach(e=>{ byVeh[e.reg]=(byVeh[e.reg]||0)+e.cost; });
+  dailyLogs.filter(e=>e.cost>0 && e.mode!=='repair').forEach(e=>{ byVeh[e.reg]=(byVeh[e.reg]||0)+e.cost; });
   maintenance.forEach(m=>{ if(m.cost>0) byVeh[m.reg]=(byVeh[m.reg]||0)+m.cost; });
 
   if (window.Chart) {
@@ -1982,7 +1984,7 @@ function renderVehExpTable(){
   let html = '<thead><tr><th>Reg</th><th>Make</th><th>Driver</th>' + MONTHS.map(m=>`<th>${m}</th>`).join('') + '<th>YTD Total</th><th>Avg/Month</th></tr></thead><tbody>';
   vehicles.forEach(v=>{
     const arr = Array(12).fill(0);
-    dailyLogs.filter(e=>e.reg===v.reg && e.cost>0).forEach(e=>{ const m=monthIdx(e.date); if(m!==null) arr[m]+=e.cost; });
+    dailyLogs.filter(e=>e.reg===v.reg && e.cost>0 && e.mode!=='repair').forEach(e=>{ const m=monthIdx(e.date); if(m!==null) arr[m]+=e.cost; });
     maintenance.filter(m=>m.reg===v.reg).forEach(m=>{ const mi=monthIdx(m.date); if(mi!==null) arr[mi]+=(m.cost||0); });
     const total = arr.reduce((a,b)=>a+b,0);
     const monthsWithData = arr.filter(v=>v>0).length;
