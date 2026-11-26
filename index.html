@@ -564,7 +564,7 @@
       <p class="muted" style="margin:6px 0 0">Combines daily-log expenses (fuel etc.) and maintenance records. Uses the filters above. Click a row to see its entries.</p>
       <div class="table-scroll">
         <table>
-          <thead><tr><th id="sum_keyHead">Vehicle</th><th>Entries</th><th>Fuel</th><th>Other expenses</th><th>Maintenance</th><th>Total cost</th><th>Last entry</th></tr></thead>
+          <thead><tr><th id="sum_keyHead">Vehicle</th><th id="sum_otherHead">Driver(s)</th><th>Entries</th><th>Fuel</th><th>Other expenses</th><th>Maintenance</th><th>Total cost</th><th>Last entry</th></tr></thead>
           <tbody id="sum_table"></tbody>
           <tfoot id="sum_tfoot"></tfoot>
         </table>
@@ -1404,6 +1404,8 @@ function renderUserTable(){
 }
 
 // ---------- Maintenance ----------
+// Driver for a maintenance record; falls back to the vehicle's assigned driver when none was saved.
+function maintDriver(m){ return m.driver || ((getVehicle(m.reg)||{}).driver) || ''; }
 function vehLabel(reg, withMake){
   const v = getVehicle(reg);
   if (!v) return reg;
@@ -1431,7 +1433,7 @@ function populateMaintFilters(){
   const vSel = document.getElementById('mt_filterVeh'), dSel = document.getElementById('mt_filterDriver');
   const cv = vSel.value, cd = dSel.value;
   const regs = Array.from(new Set(vehicles.map(v=>v.reg).concat(maintenance.map(m=>m.reg)))).sort();
-  const names = Array.from(new Set(driverNames().concat(maintenance.map(m=>m.driver).filter(Boolean)))).sort();
+  const names = Array.from(new Set(driverNames().concat(maintenance.map(maintDriver).filter(Boolean)))).sort();
   vSel.innerHTML = '<option value="all">All vehicles</option>' + regs.map(r=>`<option value="${esc(r)}">${esc(vehLabel(r))}</option>`).join('');
   dSel.innerHTML = '<option value="all">All drivers</option>' + names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('');
   if (regs.includes(cv)) vSel.value = cv;
@@ -1512,12 +1514,12 @@ function renderMaintTable(){
   if (fs!=='all') rows = rows.filter(m=>m.status===fs);
   if (fc!=='all') rows = rows.filter(m=>m.category===fc);
   if (fv!=='all') rows = rows.filter(m=>m.reg===fv);
-  if (fd!=='all') rows = rows.filter(m=>m.driver===fd);
+  if (fd!=='all') rows = rows.filter(m=>maintDriver(m)===fd);
   const total = rows.reduce((s,m)=>s+(m.cost||0),0);
   document.getElementById('mt_tfoot').innerHTML = rows.length
     ? `<tr><td colspan="6" style="text-align:right"><b>${rows.length} record${rows.length===1?'':'s'} - total</b></td><td><b>${money(total)}</b></td><td colspan="4"></td></tr>` : '';
   document.getElementById('mt_table').innerHTML = rows.map(m=>`
-    <tr><td>${m.date}</td><td>${m.reg}</td><td>${esc(m.driver)||' - '}</td><td>${m.category}</td><td>${m.description||' - '}</td><td>${m.workshop||' - '}</td>
+    <tr><td>${m.date}</td><td>${m.reg}</td><td>${esc(maintDriver(m))||' - '}</td><td>${m.category}</td><td>${m.description||' - '}</td><td>${m.workshop||' - '}</td>
     <td>${m.cost?money(m.cost):' - '}</td><td>${m.odometerAtService?Number(m.odometerAtService).toLocaleString()+' km':' - '}</td>
     <td>${m.nextServiceDueKm?Number(m.nextServiceDueKm).toLocaleString()+' km':' - '}</td>
     <td><span class="badge ${m.status.toLowerCase().replace(' ','')}">${m.status}</span></td>
@@ -1664,7 +1666,7 @@ function sumEntries(){
     cost:e.cost
   }));
   maintenance.forEach(m=>out.push({
-    date:m.date, type:'Maintenance', reg:m.reg, driver:m.driver||'',
+    date:m.date, type:'Maintenance', reg:m.reg, driver:maintDriver(m),
     detail: `${m.category}${m.description?' - '+m.description:''} (${m.status})`, cost:m.cost||0
   }));
   return out.filter(x=>(!reg||x.reg===reg) && (!driver||x.driver===driver) && (!from||x.date>=from) && (!to||x.date<=to));
@@ -1674,10 +1676,13 @@ function renderSummary(){
   const by = document.getElementById('sum_by').value;
   const keyOf = x => (by==='vehicle' ? x.reg : x.driver) || '(Unassigned)';
   document.getElementById('sum_keyHead').textContent = by==='vehicle' ? 'Vehicle' : 'Driver';
+  document.getElementById('sum_otherHead').textContent = by==='vehicle' ? 'Driver(s)' : 'Vehicle(s)';
   const groups = {};
   sumEntries().forEach(x=>{
     const k = keyOf(x);
-    const g = groups[k] || (groups[k] = {key:k, n:0, fuel:0, exp:0, maint:0, total:0, last:''});
+    const g = groups[k] || (groups[k] = {key:k, n:0, fuel:0, exp:0, maint:0, total:0, last:'', others:new Set()});
+    const other = by==='vehicle' ? x.driver : x.reg;
+    if (other) g.others.add(other);
     g.n++; g.total += x.cost;
     if (x.type==='Fuel') g.fuel += x.cost; else if (x.type==='Expense') g.exp += x.cost; else g.maint += x.cost;
     if (x.date > g.last) g.last = x.date;
@@ -1687,10 +1692,10 @@ function renderSummary(){
   const m = v => v ? money(v) : ' - ';
   document.getElementById('sum_table').innerHTML = rows.map(g=>`
     <tr style="cursor:pointer${sumSel===g.key?';background:rgba(0,0,0,.05)':''}" onclick="sumSel=this.dataset.k; renderSummary()" data-k="${esc(g.key)}">
-    <td><b>${esc(g.key)}</b></td><td>${g.n}</td><td>${m(g.fuel)}</td><td>${m(g.exp)}</td><td>${m(g.maint)}</td><td><b>${money(g.total)}</b></td><td>${g.last||' - '}</td></tr>`).join('')
-    || '<tr><td colspan=7 class="muted">No entries match these filters</td></tr>';
+    <td><b>${esc(g.key)}</b></td><td>${esc(Array.from(g.others).sort().join(', '))||' - '}</td><td>${g.n}</td><td>${m(g.fuel)}</td><td>${m(g.exp)}</td><td>${m(g.maint)}</td><td><b>${money(g.total)}</b></td><td>${g.last||' - '}</td></tr>`).join('')
+    || '<tr><td colspan=8 class="muted">No entries match these filters</td></tr>';
   document.getElementById('sum_tfoot').innerHTML = rows.length
-    ? `<tr><td><b>Total</b></td><td><b>${t.n}</b></td><td><b>${m(t.fuel)}</b></td><td><b>${m(t.exp)}</b></td><td><b>${m(t.maint)}</b></td><td><b>${money(t.total)}</b></td><td></td></tr>` : '';
+    ? `<tr><td><b>Total</b></td><td></td><td><b>${t.n}</b></td><td><b>${m(t.fuel)}</b></td><td><b>${m(t.exp)}</b></td><td><b>${m(t.maint)}</b></td><td><b>${money(t.total)}</b></td><td></td></tr>` : '';
   // Drill-down
   const card = document.getElementById('sum_detailCard');
   if (sumSel && groups[sumSel]) {
@@ -1720,7 +1725,7 @@ function clearDashFilters(){
 }
 function populateDashFilters(){
   const regs = vehicles.map(v=>v.reg).sort();
-  const names = Array.from(new Set(dailyLogs.map(e=>e.driver).concat(maintenance.map(m=>m.driver)).filter(Boolean))).sort();
+  const names = Array.from(new Set(dailyLogs.map(e=>e.driver).concat(maintenance.map(maintDriver)).filter(Boolean))).sort();
   [['sf_vehicle','All vehicles',regs],['sf_driver','All drivers',names]].forEach(([id,label,list])=>{
     const sel = document.getElementById(id); const cur = sel.value;
     sel.innerHTML = `<option value="">${label}</option>` + list.map(r=>`<option value="${esc(r)}">${id==='sf_vehicle' ? esc(vehLabel(r)) : esc(r)}</option>`).join('');
